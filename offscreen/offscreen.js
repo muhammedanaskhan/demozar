@@ -6,7 +6,6 @@ let currentSettings = null;
 
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Only handle messages meant for offscreen
   if (message.target !== 'offscreen') {
     return false;
   }
@@ -18,7 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }).catch((error) => {
         sendResponse({ success: false, error: error.message });
       });
-      return true; // Will respond asynchronously
+      return true;
 
     case 'STOP_RECORDING':
       stopRecording();
@@ -45,6 +44,8 @@ async function startRecording(settings) {
     currentSettings = settings;
     recordedChunks = [];
 
+    console.log('[Offscreen] Starting recording with settings:', settings);
+
     // Build getDisplayMedia constraints
     const displayMediaOptions = {
       video: {
@@ -54,7 +55,6 @@ async function startRecording(settings) {
       audio: settings.audioEnabled
     };
 
-    // Add source hints based on selection
     if (settings.source === 'tab') {
       displayMediaOptions.preferCurrentTab = true;
       displayMediaOptions.selfBrowserSurface = 'include';
@@ -68,20 +68,22 @@ async function startRecording(settings) {
 
     // Request display media
     mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+    console.log('[Offscreen] Got media stream');
 
-    // Handle stream ending (user clicked "Stop sharing")
+    // Handle stream ending
     mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
+      console.log('[Offscreen] Stream ended by user');
       stopRecording();
     });
+
+    // Start MediaRecorder directly on the stream
+    startMediaRecorder(settings);
 
     // Notify background that recording started
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
 
-    // Start MediaRecorder
-    startMediaRecorder(settings);
-
   } catch (error) {
-    console.error('Error starting recording:', error);
+    console.error('[Offscreen] Error starting recording:', error);
     const errorMessage = error.name === 'NotAllowedError'
       ? 'Permission denied or cancelled'
       : error.message;
@@ -93,29 +95,13 @@ async function startRecording(settings) {
 function getVideoConstraints(quality) {
   switch (quality) {
     case 'high':
-      return {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30 }
-      };
+      return { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
     case 'medium':
-      return {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 }
-      };
+      return { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
     case 'low':
-      return {
-        width: { ideal: 854 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 24 }
-      };
+      return { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 24 } };
     default:
-      return {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30 }
-      };
+      return { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
   }
 }
 
@@ -127,43 +113,45 @@ function startMediaRecorder(settings) {
     videoBitsPerSecond: getBitrate(settings.quality)
   };
 
+  console.log('[Offscreen] Creating MediaRecorder with:', options);
+
   try {
     mediaRecorder = new MediaRecorder(mediaStream, options);
   } catch (e) {
-    console.log('Falling back to default MediaRecorder options');
+    console.log('[Offscreen] Falling back to default options');
     mediaRecorder = new MediaRecorder(mediaStream);
   }
 
   mediaRecorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
       recordedChunks.push(event.data);
+      console.log('[Offscreen] Chunk received:', event.data.size, 'bytes, total:', recordedChunks.length);
     }
   };
 
   mediaRecorder.onstop = () => {
+    console.log('[Offscreen] MediaRecorder stopped');
     processRecording();
   };
 
   mediaRecorder.onerror = (event) => {
-    console.error('MediaRecorder error:', event.error);
+    console.error('[Offscreen] MediaRecorder error:', event.error);
     sendRecordingError('Recording error occurred');
   };
 
-  // Start recording, collect data every second
+  mediaRecorder.onstart = () => {
+    console.log('[Offscreen] MediaRecorder started');
+  };
+
   mediaRecorder.start(1000);
-  console.log('MediaRecorder started');
 }
 
 // Get appropriate MIME type
 function getMimeType(format) {
-  if (format === 'mp4') {
-    if (MediaRecorder.isTypeSupported('video/mp4')) {
-      return 'video/mp4';
-    }
-    console.log('MP4 not supported, falling back to WebM');
+  if (format === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')) {
+    return 'video/mp4';
   }
 
-  // WebM codecs preference order
   const codecs = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp9',
@@ -184,20 +172,16 @@ function getMimeType(format) {
 // Get bitrate based on quality
 function getBitrate(quality) {
   switch (quality) {
-    case 'high':
-      return 8000000; // 8 Mbps
-    case 'medium':
-      return 5000000; // 5 Mbps
-    case 'low':
-      return 2500000; // 2.5 Mbps
-    default:
-      return 5000000;
+    case 'high': return 8000000;
+    case 'medium': return 5000000;
+    case 'low': return 2500000;
+    default: return 5000000;
   }
 }
 
 // Stop recording
 function stopRecording() {
-  console.log('Stopping recording...');
+  console.log('[Offscreen] Stopping recording...');
 
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
@@ -213,7 +197,7 @@ function stopRecording() {
 function pauseRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
     mediaRecorder.pause();
-    console.log('Recording paused');
+    console.log('[Offscreen] Recording paused');
   }
 }
 
@@ -221,13 +205,13 @@ function pauseRecording() {
 function resumeRecording() {
   if (mediaRecorder && mediaRecorder.state === 'paused') {
     mediaRecorder.resume();
-    console.log('Recording resumed');
+    console.log('[Offscreen] Recording resumed');
   }
 }
 
 // Process recording and send to background
 async function processRecording() {
-  console.log('Processing recording, chunks:', recordedChunks.length);
+  console.log('[Offscreen] Processing recording, chunks:', recordedChunks.length);
 
   if (recordedChunks.length === 0) {
     sendRecordingError('No recording data captured');
@@ -238,18 +222,16 @@ async function processRecording() {
     const mimeType = mediaRecorder?.mimeType || 'video/webm';
     const blob = new Blob(recordedChunks, { type: mimeType });
 
-    console.log('Recording blob size:', blob.size);
+    console.log('[Offscreen] Recording blob size:', (blob.size / 1024 / 1024).toFixed(2), 'MB');
 
-    // Determine format from mimeType
     let format = 'webm';
     if (mimeType.includes('mp4')) {
       format = 'mp4';
     }
 
-    // Convert to data URL for transfer
     const reader = new FileReader();
     reader.onload = () => {
-      console.log('Sending recording data to background');
+      console.log('[Offscreen] Sending recording to background');
       chrome.runtime.sendMessage({
         type: 'RECORDING_DATA',
         data: reader.result,
@@ -257,24 +239,22 @@ async function processRecording() {
       });
     };
     reader.onerror = () => {
-      console.error('FileReader error');
       sendRecordingError('Failed to process recording');
     };
     reader.readAsDataURL(blob);
 
   } catch (error) {
-    console.error('Error processing recording:', error);
+    console.error('[Offscreen] Error processing recording:', error);
     sendRecordingError('Failed to process recording');
   }
 
-  // Clean up
   recordedChunks = [];
   mediaRecorder = null;
 }
 
-// Send recording error to background
+// Send recording error
 function sendRecordingError(error) {
-  console.error('Recording error:', error);
+  console.error('[Offscreen] Error:', error);
   chrome.runtime.sendMessage({
     type: 'RECORDING_ERROR',
     error: error

@@ -10,21 +10,6 @@ let recordingState = {
 // Timer interval
 let timerInterval = null;
 
-// Icon paths (relative paths from extension root)
-const ICONS_NORMAL = {
-  '16': 'icons/icon16.png',
-  '32': 'icons/icon32.png',
-  '48': 'icons/icon48.png',
-  '128': 'icons/icon128.png'
-};
-
-const ICONS_RECORDING = {
-  '16': 'icons/icon16-recording.png',
-  '32': 'icons/icon32-recording.png',
-  '48': 'icons/icon48-recording.png',
-  '128': 'icons/icon128-recording.png'
-};
-
 // Handle extension icon click (for one-click stop)
 chrome.action.onClicked.addListener((tab) => {
   // This only fires when popup is disabled (during recording)
@@ -78,15 +63,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       recordingState.recordingTime = 0;
       startTimer();
       setRecordingUI(true);
-      return false; // No response needed
+      return false;
 
     case 'RECORDING_DATA':
       handleRecordingData(message.data, message.format);
-      return false; // No response needed
+      return false;
 
     case 'RECORDING_ERROR':
       handleRecordingError(message.error);
-      return false; // No response needed
+      return false;
 
     default:
       return false;
@@ -110,7 +95,7 @@ async function setRecordingUI(isRecording) {
       // Re-enable popup
       await chrome.action.setPopup({ popup: 'popup/popup.html' });
       // Restore tooltip
-      await chrome.action.setTitle({ title: 'Spotlight Recorder' });
+      await chrome.action.setTitle({ title: 'Demozar' });
     }
   } catch (e) {
     console.error('Error setting UI:', e);
@@ -123,21 +108,11 @@ async function startRecording(settings) {
     recordingState.settings = settings;
     recordingState.tabId = settings.tabId;
 
-    // Enable spotlight overlay if enabled
-    if (settings.spotlightEnabled) {
-      try {
-        await chrome.tabs.sendMessage(settings.tabId, {
-          type: 'START_SPOTLIGHT',
-          settings: {
-            size: settings.spotlightSize,
-            color: settings.spotlightColor,
-            style: settings.spotlightStyle
-          }
-        });
-      } catch (e) {
-        console.log('Could not start spotlight (content script may not be loaded):', e);
-      }
-    }
+    console.log('[Background] Starting recording with settings:', {
+      source: settings.source,
+      quality: settings.quality,
+      format: settings.format
+    });
 
     // Create offscreen document
     await setupOffscreenDocument();
@@ -215,17 +190,6 @@ async function closeOffscreenDocument() {
 async function stopRecording() {
   stopTimer();
 
-  // Stop spotlight in content script
-  if (recordingState.settings?.spotlightEnabled && recordingState.tabId) {
-    try {
-      await chrome.tabs.sendMessage(recordingState.tabId, {
-        type: 'STOP_SPOTLIGHT'
-      });
-    } catch (e) {
-      // Tab might be closed
-    }
-  }
-
   // Tell offscreen to stop
   try {
     await sendToOffscreen({ type: 'STOP_RECORDING' });
@@ -291,7 +255,7 @@ async function handleRecordingData(dataUrl, format) {
 // Store recording in IndexedDB
 async function storeRecording(blob, format) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('SpotlightRecorder', 1);
+    const request = indexedDB.open('DemozarRecorder', 1);
 
     request.onerror = () => reject(request.error);
 

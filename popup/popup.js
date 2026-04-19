@@ -1,10 +1,6 @@
 // State
 let state = {
   source: 'tab',
-  spotlightEnabled: true,
-  spotlightSize: 80,
-  spotlightColor: '#01FD48',
-  spotlightStyle: 'glow',
   countdownEnabled: true,
   audioEnabled: true,
   format: 'webm',
@@ -31,10 +27,6 @@ const elements = {
   newRecordingBtn: document.getElementById('newRecordingBtn'),
   recTime: document.getElementById('recTime'),
   status: document.getElementById('status'),
-  spotlightEnabled: document.getElementById('spotlightEnabled'),
-  spotlightSettings: document.getElementById('spotlightSettings'),
-  spotlightSize: document.getElementById('spotlightSize'),
-  sizeValue: document.getElementById('sizeValue'),
   countdownEnabled: document.getElementById('countdownEnabled'),
   audioEnabled: document.getElementById('audioEnabled'),
   formatSelect: document.getElementById('formatSelect'),
@@ -81,40 +73,6 @@ function bindEvents() {
       document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.source = btn.dataset.source;
-      saveSettings();
-    });
-  });
-
-  // Spotlight toggle
-  elements.spotlightEnabled.addEventListener('change', (e) => {
-    state.spotlightEnabled = e.target.checked;
-    updateSpotlightSettingsVisibility();
-    saveSettings();
-  });
-
-  // Spotlight size
-  elements.spotlightSize.addEventListener('input', (e) => {
-    state.spotlightSize = parseInt(e.target.value);
-    elements.sizeValue.textContent = `${state.spotlightSize}px`;
-    saveSettings();
-  });
-
-  // Color buttons
-  document.querySelectorAll('.color-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.spotlightColor = btn.dataset.color;
-      saveSettings();
-    });
-  });
-
-  // Style buttons
-  document.querySelectorAll('.style-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.spotlightStyle = btn.dataset.style;
       saveSettings();
     });
   });
@@ -191,38 +149,12 @@ function updateUI() {
     btn.classList.toggle('active', btn.dataset.source === state.source);
   });
 
-  // Spotlight toggle
-  elements.spotlightEnabled.checked = state.spotlightEnabled;
-  updateSpotlightSettingsVisibility();
-
-  // Spotlight size
-  elements.spotlightSize.value = state.spotlightSize;
-  elements.sizeValue.textContent = `${state.spotlightSize}px`;
-
-  // Color buttons
-  document.querySelectorAll('.color-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.color === state.spotlightColor);
-  });
-
-  // Style buttons
-  document.querySelectorAll('.style-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.style === state.spotlightStyle);
-  });
-
   // Settings
   elements.countdownEnabled.checked = state.countdownEnabled;
   elements.audioEnabled.checked = state.audioEnabled;
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
   elements.watermarkEnabled.checked = state.watermarkEnabled;
-}
-
-function updateSpotlightSettingsVisibility() {
-  if (state.spotlightEnabled) {
-    elements.spotlightSettings.classList.remove('hidden');
-  } else {
-    elements.spotlightSettings.classList.add('hidden');
-  }
 }
 
 // Start recording
@@ -242,10 +174,6 @@ async function startRecording() {
       type: 'START_RECORDING',
       settings: {
         source: state.source,
-        spotlightEnabled: state.spotlightEnabled,
-        spotlightSize: state.spotlightSize,
-        spotlightColor: state.spotlightColor,
-        spotlightStyle: state.spotlightStyle,
         audioEnabled: state.audioEnabled,
         format: state.format,
         quality: state.quality,
