@@ -49,16 +49,77 @@
 
     <!-- Main View -->
     <main class="main-view" id="mainView">
-      <!-- Record Button -->
-      <button class="record-btn" id="recordBtn">
-        <div class="record-icon"></div>
-        <span>Start Recording</span>
-      </button>
+      <!-- Feature highlights -->
+      <div class="features">
+        <div class="feature">
+          <div class="feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="23 7 16 12 23 17 23 7"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </div>
+          <span>Record</span>
+        </div>
+        <div class="feature-dot"></div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+          </div>
+          <span>Edit</span>
+        </div>
+        <div class="feature-dot"></div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/>
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+          </div>
+          <span>Share</span>
+        </div>
+      </div>
 
-      <p class="record-hint">You'll choose a tab, window, or screen next.</p>
+      <!-- Hero text -->
+      <div class="hero-text">
+        <h2 class="hero-title">Screen recording,<br><span>reimagined.</span></h2>
+        <p class="hero-subtitle">Auto-zoom, smooth edits, pro results.</p>
+      </div>
 
       <!-- Status -->
       <div class="status" id="status"></div>
+
+      <!-- Bottom action area -->
+      <div class="action-area">
+        <p class="record-hint">You'll choose a tab, window, or screen next.</p>
+
+        <!-- Record Button -->
+        <button class="record-btn" id="recordBtn">
+          <div class="record-icon"></div>
+          <span>Start Recording</span>
+        </button>
+      </div>
+
+      <!-- Gradient wave decoration -->
+      <div class="wave-decoration">
+        <svg viewBox="0 0 320 60" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#01FD48" stop-opacity="0.12"/>
+              <stop offset="50%" stop-color="#17FEA0" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#01FD48" stop-opacity="0.12"/>
+            </linearGradient>
+          </defs>
+          <path d="M0,30 Q80,50 160,30 T320,30 L320,60 L0,60 Z" fill="url(#waveGrad)"/>
+          <path d="M0,40 Q80,15 160,40 T320,40 L320,60 L0,60 Z" fill="url(#waveGrad)" opacity="0.5"/>
+        </svg>
+        <div class="wave-tagline">Polished demos in seconds</div>
+      </div>
     </main>
 
     <!-- Recording View -->
