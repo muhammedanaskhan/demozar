@@ -3,8 +3,12 @@ let recordingState = {
   isRecording: false,
   isPaused: false,
   recordingTime: 0,
-  settings: null
+  settings: null,
+  recordingTabId: null
 };
+
+// Cursor tracking data - array of {time, x, y}
+let cursorData = [];
 
 // Timer interval
 let timerInterval = null;
@@ -64,8 +68,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       recordingState.isRecording = true;
       recordingState.isPaused = false;
       recordingState.recordingTime = 0;
+      cursorData = []; // Reset cursor data to sync with recording start
       startTimer();
       setRecordingUI(true);
+      // Reset cursor tracker timer to sync with actual recording start
+      if (recordingState.recordingTabId) {
+        chrome.tabs.sendMessage(recordingState.recordingTabId, { type: 'RESET_CURSOR_TIME' }).catch(() => {});
+      }
+      console.log('[Background] Recording started, cursor timer synced');
       return false;
 
     case 'RECORDING_DATA':
@@ -75,6 +85,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'RECORDING_ERROR':
       handleRecordingError(message.error);
+      return false;
+
+    case 'CURSOR_POSITION':
+      // Collect cursor position data from content script
+      if (recordingState.isRecording && !recordingState.isPaused) {
+        cursorData.push(message.data);
+        if (cursorData.length % 30 === 0) {
+          console.log('[Background] Received', cursorData.length, 'cursor positions. Latest:', message.data);
+        }
+      }
       return false;
 
     default:
@@ -111,10 +131,17 @@ async function startRecording(settings) {
   try {
     recordingState.settings = settings;
 
+    // Reset cursor data
+    cursorData = [];
+
     console.log('[Background] Starting recording with settings:', {
       quality: settings.quality,
       format: settings.format
     });
+
+    // IMPORTANT: Inject cursor tracker FIRST, before media picker appears
+    // This ensures we capture the correct tab while it's still active
+    await injectCursorTracker();
 
     await setupOffscreenDocument();
 
@@ -129,9 +156,62 @@ async function startRecording(settings) {
     if (response && !response.success) {
       throw new Error(response.error || 'Recording failed in offscreen');
     }
+
   } catch (error) {
     console.error('Error starting recording:', error);
     throw error;
+  }
+}
+
+// Inject cursor tracker into active tab
+async function injectCursorTracker() {
+  try {
+    // Get the active tab in the current window
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    let tab = tabs[0];
+
+    // Fallback: try current window
+    if (!tab) {
+      const fallbackTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      tab = fallbackTabs[0];
+    }
+
+    if (!tab || !tab.id) {
+      console.log('[Background] No active tab found for cursor tracking');
+      return;
+    }
+
+    // Skip chrome:// and other restricted URLs
+    const url = tab.url || '';
+    if (url.startsWith('chrome://') ||
+        url.startsWith('chrome-extension://') ||
+        url.startsWith('about:') ||
+        url.startsWith('edge://') ||
+        url === '') {
+      console.log('[Background] Cannot inject into restricted URL:', url);
+      return;
+    }
+
+    recordingState.recordingTabId = tab.id;
+    console.log('[Background] Injecting cursor tracker into tab:', tab.id, 'URL:', url);
+
+    // Inject the cursor tracker script
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content/cursorTracker.js']
+    });
+    console.log('[Background] Script injected successfully');
+
+    // Small delay to ensure script is ready
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Start tracking
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_CURSOR_TRACKING' });
+    console.log('[Background] Cursor tracking started, response:', response);
+
+  } catch (error) {
+    console.error('[Background] Cursor tracker injection failed:', error);
+    // Non-fatal - recording continues without cursor tracking
   }
 }
 
@@ -196,6 +276,15 @@ async function closeOffscreenDocument() {
 // Stop recording
 async function stopRecording() {
   stopTimer();
+
+  // Stop cursor tracking
+  if (recordingState.recordingTabId) {
+    try {
+      await chrome.tabs.sendMessage(recordingState.recordingTabId, { type: 'STOP_CURSOR_TRACKING' });
+    } catch (e) {
+      // Tab might be closed or navigated away
+    }
+  }
 
   // Tell offscreen to stop
   try {
@@ -282,14 +371,26 @@ async function storeRecording(blob, format) {
       const transaction = db.transaction(['recordings'], 'readwrite');
       const store = transaction.objectStore('recordings');
 
+      console.log('[Background] Storing recording with', cursorData.length, 'cursor positions');
+      if (cursorData.length > 0) {
+        console.log('[Background] First cursor point:', cursorData[0]);
+        console.log('[Background] Last cursor point:', cursorData[cursorData.length - 1]);
+      }
+
       const data = {
         blob: blob,
         format: format,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        cursorData: [...cursorData] // Copy the array to ensure it's stored
       };
 
       const putRequest = store.put(data, 'latest');
-      putRequest.onsuccess = () => resolve();
+      putRequest.onsuccess = () => {
+        // Clear cursor data after storing
+        cursorData = [];
+        recordingState.recordingTabId = null;
+        resolve();
+      };
       putRequest.onerror = () => reject(putRequest.error);
     };
   });

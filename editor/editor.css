@@ -193,6 +193,17 @@ body {
   border-radius: 8px;
 }
 
+/* Container for video that clips zoom overflow */
+.video-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  /* Container takes size from video */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Minimal Browser Frame - Cursorful style */
 .minimal-frame {
   background: linear-gradient(180deg, #303032 0%, #28282a 100%);
@@ -295,17 +306,18 @@ body {
   max-width: 100%;
   max-height: 50vh;
   background: #000;
-  border-radius: 8px;
-  object-fit: contain;
+  border-radius: 0;
+  /* Remove object-fit to allow proper zoom transforms */
+  /* will-change for smooth animations */
+  will-change: transform, transform-origin;
 }
 
-/* When minimal frame is shown, video has no top radius */
-.video-player.has-frame {
+/* When minimal frame is shown, video container has no top radius */
+.minimal-frame + .video-container {
   border-radius: 0 0 8px 8px;
 }
 
-/* Match frame radius */
-.minimal-frame + .video-player {
+.minimal-frame + .video-container .video-player {
   border-radius: 0 0 8px 8px;
 }
 
@@ -321,6 +333,13 @@ body {
 .preview-frame.has-shadow {
   filter: drop-shadow(0 25px 50px rgba(0, 0, 0, 0.4));
 }
+
+/* Visual indicator when zoom is active */
+.preview-frame.zoom-active {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
 
 .preview-frame.has-border .video-player,
 .preview-frame.has-border .minimal-frame {
@@ -513,7 +532,7 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0;
 }
 
 .timeline-ruler::before,
@@ -544,8 +563,10 @@ body {
 
 /* Clip area */
 .timeline-clips-wrapper {
+  flex: 1;
   position: relative;
   padding: 12px 16px;
+  cursor: pointer;
 }
 
 .timeline-clips {
@@ -757,7 +778,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 16px;
+  left: 52px; /* track-label (36px) + wrapper padding (16px) */
   width: 2px;
   background: var(--primary);
   z-index: 10;
@@ -835,7 +856,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 20px;
+  padding-top: 4px; 
+  padding-left: 14px;
+  padding-right: 14px;
   border: none;
   background: linear-gradient(135deg, var(--dz-brand-start) 0%, var(--dz-brand-end) 100%);
   color: var(--dz-ink);
@@ -1291,6 +1314,326 @@ body {
   background: var(--primary);
   width: 0%;
   transition: width 0.3s ease;
+}
+
+/* Timeline Track Row */
+.timeline-track-row {
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.track-label {
+  width: 36px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+}
+
+/* Zoom Track */
+.zoom-track {
+  border-top: 1px solid var(--border-light);
+}
+
+.zoom-track .track-label {
+  height: 40px;
+}
+
+.timeline-zoom-wrapper {
+  flex: 1;
+  position: relative;
+  padding: 8px 16px;
+  min-height: 40px;
+  cursor: pointer;
+}
+
+.timeline-zooms {
+  position: relative;
+  height: 24px;
+  display: flex;
+  gap: 0;
+}
+
+/* Zoom Segments */
+.zoom-segment {
+  position: absolute;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(23, 254, 160, 0.25) 0%, rgba(1, 253, 72, 0.15) 100%);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+}
+
+.zoom-segment:hover {
+  background: linear-gradient(180deg, rgba(23, 254, 160, 0.35) 0%, rgba(1, 253, 72, 0.25) 100%);
+}
+
+.zoom-segment.selected {
+  background: linear-gradient(180deg, rgba(23, 254, 160, 0.4) 0%, rgba(1, 253, 72, 0.3) 100%);
+  border-width: 2px;
+  box-shadow: 0 0 0 2px rgba(1, 253, 72, 0.2), 0 0 12px rgba(1, 253, 72, 0.3);
+}
+
+.zoom-segment-content {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary);
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.zoom-segment-content svg {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+/* Zoom segment handles */
+.zoom-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.zoom-handle:hover {
+  background: rgba(1, 253, 72, 0.3);
+}
+
+.zoom-handle.left {
+  left: 0;
+  border-radius: 4px 0 0 4px;
+}
+
+.zoom-handle.right {
+  right: 0;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Add Zoom button special style */
+.timeline-btn.zoom-btn {
+  background: linear-gradient(135deg, rgba(23, 254, 160, 0.15) 0%, rgba(1, 253, 72, 0.1) 100%);
+  border-color: rgba(1, 253, 72, 0.3);
+  color: var(--primary);
+}
+
+.timeline-btn.zoom-btn:hover {
+  background: linear-gradient(135deg, rgba(23, 254, 160, 0.25) 0%, rgba(1, 253, 72, 0.2) 100%);
+  border-color: var(--primary);
+}
+
+/* Toolbar Divider */
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* Zoom Controls Panel */
+.zoom-panel {
+  display: none;
+}
+
+.zoom-panel.active {
+  display: block;
+}
+
+.zoom-empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+}
+
+.zoom-empty-state svg {
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.zoom-empty-state p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.zoom-controls {
+  padding: 4px 0;
+}
+
+.zoom-control-group {
+  margin-bottom: 16px;
+}
+
+.zoom-control-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Position toggle (Follow / Fixed) */
+.position-toggle {
+  display: flex;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.position-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.position-btn:hover {
+  color: var(--text-primary);
+}
+
+.position-btn.active {
+  background: var(--bg-elevated);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.position-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Depth slider */
+.depth-slider-wrapper {
+  padding: 8px 0;
+}
+
+.depth-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+}
+
+.depth-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 3px solid var(--bg-primary);
+  box-shadow: var(--shadow-md);
+  transition: transform 0.15s ease;
+}
+
+.depth-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.depth-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.depth-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  margin-top: 8px;
+}
+
+/* Fixed position picker */
+.fixed-position-picker {
+  display: none;
+  margin-top: 12px;
+}
+
+.fixed-position-picker.active {
+  display: block;
+}
+
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  padding: 4px;
+  aspect-ratio: 16 / 9;
+}
+
+.position-cell {
+  border: none;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.position-cell:hover {
+  background: var(--bg-elevated);
+}
+
+.position-cell.active {
+  background: var(--primary);
+  box-shadow: 0 0 0 2px rgba(1, 253, 72, 0.3);
+}
+
+/* Delete zoom button */
+.delete-zoom-btn {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.delete-zoom-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Hidden utility */
