@@ -10,6 +10,8 @@ const state = {
   backgroundType: 'image',
   backgroundImage: '../assets/abstract.webp',
   imageBlur: 'moderate',
+  hideMenuBar: false,
+  hideDock: false,
   frameStyle: 'default',
   frameShadow: true,
   frameBorder: false,
@@ -26,7 +28,7 @@ const elements = {
   previewWrapper: document.getElementById('previewWrapper'),
   previewBackground: document.getElementById('previewBackground'),
   previewFrame: document.getElementById('previewFrame'),
-  browserFrame: document.getElementById('browserFrame'),
+  minimalFrame: document.getElementById('minimalFrame'),
   playBtn: document.getElementById('playBtn'),
   currentTime: document.getElementById('currentTime'),
   durationEl: document.getElementById('duration'),
@@ -43,6 +45,8 @@ const elements = {
   loadingProgressBar: document.getElementById('loadingProgressBar'),
   aspectRatio: document.getElementById('aspectRatio'),
   imageBlur: document.getElementById('imageBlur'),
+  hideMenuBar: document.getElementById('hideMenuBar'),
+  hideDock: document.getElementById('hideDock'),
   frameShadow: document.getElementById('frameShadow'),
   frameBorder: document.getElementById('frameBorder'),
   cursorSize: document.getElementById('cursorSize'),
@@ -260,6 +264,17 @@ function bindEvents() {
 
   elements.imageBlur.addEventListener('change', (e) => {
     state.imageBlur = e.target.value;
+    updatePreview();
+  });
+
+  // Crop toggles
+  elements.hideMenuBar.addEventListener('change', (e) => {
+    state.hideMenuBar = e.target.checked;
+    updatePreview();
+  });
+
+  elements.hideDock.addEventListener('change', (e) => {
+    state.hideDock = e.target.checked;
     updatePreview();
   });
 
@@ -489,12 +504,38 @@ function updatePreview() {
     elements.previewBackground.style.transform = 'none';
   }
 
+  // Crop - hide menu bar and/or dock
+  // Menu bar ~3% from top, dock ~6% from bottom
+  const cropTop = state.hideMenuBar ? 3.5 : 0;
+  const cropBottom = state.hideDock ? 6 : 0;
+
+  if (cropTop > 0 || cropBottom > 0) {
+    // Calculate how much of video we're keeping
+    const keepPercent = 100 - cropTop - cropBottom;
+    // Scale factor to fill the original space
+    const scale = 100 / keepPercent;
+    // Translate to shift cropped area out of view
+    // Positive = move down, Negative = move up
+    const shiftPercent = (cropTop - cropBottom) / 2;
+
+    elements.videoPlayer.style.clipPath = `inset(${cropTop}% 0 ${cropBottom}% 0)`;
+    elements.videoPlayer.style.transform = `scale(${scale.toFixed(3)}) translateY(${shiftPercent.toFixed(2)}%)`;
+    elements.videoPlayer.style.transformOrigin = 'center center';
+  } else {
+    elements.videoPlayer.style.clipPath = 'none';
+    elements.videoPlayer.style.transform = 'none';
+  }
+
   // Frame style
-  elements.browserFrame.className = 'browser-frame';
+  // Default: No custom frame, video shows its own browser chrome
+  // Minimal: Show custom Demozar frame
+  // Hidden: No frame at all
   if (state.frameStyle === 'minimal') {
-    elements.browserFrame.classList.add('minimal');
-  } else if (state.frameStyle === 'hidden') {
-    elements.browserFrame.classList.add('hidden');
+    elements.minimalFrame.classList.remove('hidden');
+    elements.videoPlayer.classList.add('has-frame');
+  } else {
+    elements.minimalFrame.classList.add('hidden');
+    elements.videoPlayer.classList.remove('has-frame');
   }
 
   // Shadow & border
