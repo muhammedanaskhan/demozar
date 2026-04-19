@@ -509,6 +509,10 @@ function bindEvents() {
   });
   elements.videoPlayer.addEventListener('ended', () => {
     state.isPlaying = false;
+    if (playheadAnimationId) {
+      cancelAnimationFrame(playheadAnimationId);
+      playheadAnimationId = null;
+    }
     updatePlayButton();
   });
 
@@ -710,12 +714,28 @@ function bindEvents() {
 
 }
 
+// Animation frame ID for smooth playhead
+let playheadAnimationId = null;
+
+// Smooth playhead animation loop
+function animatePlayhead() {
+  if (state.isPlaying) {
+    updateProgress();
+    playheadAnimationId = requestAnimationFrame(animatePlayhead);
+  }
+}
+
 // Toggle play/pause
 function togglePlay() {
   if (state.isPlaying) {
     elements.videoPlayer.pause();
+    if (playheadAnimationId) {
+      cancelAnimationFrame(playheadAnimationId);
+      playheadAnimationId = null;
+    }
   } else {
     elements.videoPlayer.play();
+    playheadAnimationId = requestAnimationFrame(animatePlayhead);
   }
   state.isPlaying = !state.isPlaying;
   updatePlayButton();
