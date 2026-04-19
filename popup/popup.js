@@ -1,6 +1,5 @@
 // State
 let state = {
-  source: 'tab',
   countdownEnabled: true,
   audioEnabled: true,
   format: 'webm',
@@ -67,16 +66,6 @@ async function saveSettings() {
 
 // Bind event listeners
 function bindEvents() {
-  // Source buttons
-  document.querySelectorAll('.source-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.source = btn.dataset.source;
-      saveSettings();
-    });
-  });
-
   // Record button
   elements.recordBtn.addEventListener('click', startRecording);
 
@@ -144,12 +133,6 @@ function bindEvents() {
 
 // Update UI based on state
 function updateUI() {
-  // Source buttons
-  document.querySelectorAll('.source-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.source === state.source);
-  });
-
-  // Settings
   elements.countdownEnabled.checked = state.countdownEnabled;
   elements.audioEnabled.checked = state.audioEnabled;
   elements.formatSelect.value = state.format;
@@ -162,23 +145,17 @@ async function startRecording() {
   try {
     setStatus('Preparing...');
 
-    // Get current tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
     if (state.countdownEnabled) {
       await showCountdown();
     }
 
-    // Send message to background to start recording
     chrome.runtime.sendMessage({
       type: 'START_RECORDING',
       settings: {
-        source: state.source,
         audioEnabled: state.audioEnabled,
         format: state.format,
         quality: state.quality,
-        watermarkEnabled: state.watermarkEnabled,
-        tabId: tab.id
+        watermarkEnabled: state.watermarkEnabled
       }
     });
 
@@ -190,7 +167,7 @@ async function startRecording() {
 
   } catch (error) {
     console.error('Error starting recording:', error);
-    showError('Failed to start recording');
+    showError('Failed: ' + (error?.message || 'unknown error'));
   }
 }
 
