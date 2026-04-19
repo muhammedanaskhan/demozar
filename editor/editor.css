@@ -6,23 +6,32 @@
 }
 
 :root {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
-  --border: #e2e8f0;
-  --border-light: #f1f5f9;
-  --primary: #10b981;
-  --primary-hover: #059669;
-  --primary-light: #d1fae5;
-  --accent: #6366f1;
+  /* Demozar Brand Colors */
+  --dz-brand-start: #17FEA0;
+  --dz-brand-end: #01FD48;
+  --dz-brand: #01FD48;
+  --dz-ink: #0B1A12;
+
+  /* Dark Mode Colors */
+  --bg-primary: #0a0a0b;
+  --bg-secondary: #111113;
+  --bg-tertiary: #1a1a1d;
+  --bg-elevated: #1f1f23;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --border: #27272a;
+  --border-light: #1f1f23;
+  --primary: #01FD48;
+  --primary-hover: #17FEA0;
+  --primary-light: rgba(1, 253, 72, 0.15);
+  --accent: #17FEA0;
   --danger: #ef4444;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+  --shadow-brand: 0 6px 20px rgba(1, 253, 72, 0.25);
   --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
@@ -67,17 +76,96 @@ body {
   justify-content: center;
   min-height: 0;
   overflow: hidden;
+  padding: 20px;
 }
 
 .preview-wrapper {
   position: relative;
-  width: 100%;
-  height: 100%;
   border-radius: var(--radius-xl);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  transition: all 0.3s ease;
+}
+
+/* Aspect ratio classes - all use height: 100% with max-width constraint */
+.preview-wrapper[data-aspect="native"] {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.preview-wrapper[data-aspect="21:9"] {
+  aspect-ratio: 21 / 9;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="16:9"] {
+  aspect-ratio: 16 / 9;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="16:10"] {
+  aspect-ratio: 16 / 10;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="3:2"] {
+  aspect-ratio: 3 / 2;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="4:3"] {
+  aspect-ratio: 4 / 3;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="1:1"] {
+  aspect-ratio: 1 / 1;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="3:4"] {
+  aspect-ratio: 3 / 4;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="2:3"] {
+  aspect-ratio: 2 / 3;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="10:16"] {
+  aspect-ratio: 10 / 16;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+}
+
+.preview-wrapper[data-aspect="9:16"] {
+  aspect-ratio: 9 / 16;
+  height: 100%;
+  width: auto;
+  max-width: 100%;
 }
 
 .preview-background {
@@ -95,17 +183,22 @@ body {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  max-width: 75%;
-  max-height: 75%;
+  align-items: center;
+  justify-content: center;
+  max-width: 90%;
+  max-height: 90%;
+  width: fit-content;
+  height: fit-content;
 }
 
 .browser-frame {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 10px 14px;
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  width: 100%;
 }
 
 .browser-frame.minimal {
@@ -133,11 +226,22 @@ body {
 
 .video-player {
   display: block;
+  width: auto;
+  height: auto;
   max-width: 100%;
-  max-height: 45vh;
+  max-height: 50vh;
   background: #000;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   object-fit: contain;
+}
+
+/* Constrain video more in portrait modes */
+.preview-wrapper[data-aspect="3:4"] .video-player,
+.preview-wrapper[data-aspect="2:3"] .video-player,
+.preview-wrapper[data-aspect="10:16"] .video-player,
+.preview-wrapper[data-aspect="9:16"] .video-player {
+  max-height: 45vh;
+  max-width: 90%;
 }
 
 .preview-frame.has-shadow {
@@ -162,7 +266,7 @@ body {
   width: 44px;
   height: 44px;
   border: none;
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -175,7 +279,7 @@ body {
 }
 
 .play-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   transform: scale(1.05);
 }
 
@@ -237,8 +341,8 @@ body {
   transform: translate(-50%, -50%);
   width: 18px;
   height: 18px;
-  background: white;
-  border: 3px solid var(--primary);
+  background: var(--primary);
+  border: 3px solid var(--bg-primary);
   border-radius: 50%;
   box-shadow: var(--shadow-md);
   cursor: grab;
@@ -270,7 +374,7 @@ body {
   gap: 6px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border-radius: var(--radius);
   font-size: 13px;
   color: var(--text-secondary);
@@ -279,7 +383,7 @@ body {
 }
 
 .timeline-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
 }
 
@@ -293,7 +397,7 @@ body {
 
 .timeline-track {
   position: relative;
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 12px;
@@ -418,7 +522,7 @@ body {
 }
 
 .sidebar-tab.active {
-  background: var(--primary-light);
+  background: var(--primary-bg);
   color: var(--primary);
 }
 
@@ -446,20 +550,21 @@ body {
   gap: 8px;
   padding: 14px 20px;
   border: none;
-  background: var(--primary);
-  color: white;
+  background: linear-gradient(135deg, var(--dz-brand-start) 0%, var(--dz-brand-end) 100%);
+  color: var(--dz-ink);
   font-size: 15px;
   font-weight: 600;
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all var(--transition);
   margin-bottom: 20px;
+  box-shadow: var(--shadow-brand);
 }
 
 .export-btn:hover {
-  background: var(--primary-hover);
+  filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 8px 24px rgba(1, 253, 72, 0.4);
 }
 
 /* Settings */
@@ -482,7 +587,7 @@ body {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   font-size: 14px;
   color: var(--text-primary);
   cursor: pointer;
@@ -527,7 +632,7 @@ body {
 }
 
 .bg-tab.active {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -554,7 +659,7 @@ body {
 
 .bg-preset.active {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary-light);
+  box-shadow: 0 0 0 2px var(--primary-bg);
 }
 
 .bg-preset:nth-child(1) { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -608,7 +713,7 @@ body {
 }
 
 .frame-tab.active {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -667,7 +772,7 @@ body {
   width: 16px;
   left: 2px;
   bottom: 2px;
-  background: white;
+  background: var(--text-primary);
   border-radius: 50%;
   transition: var(--transition);
   box-shadow: var(--shadow-sm);
@@ -703,7 +808,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -786,7 +891,7 @@ body {
   border-radius: 50%;
   background: var(--primary);
   cursor: pointer;
-  border: 2px solid white;
+  border: 2px solid var(--bg-primary);
   box-shadow: var(--shadow);
 }
 
@@ -810,17 +915,18 @@ body {
   gap: 8px;
   padding: 12px 16px;
   border: none;
-  background: var(--primary);
-  color: white;
+  background: linear-gradient(135deg, var(--dz-brand-start) 0%, var(--dz-brand-end) 100%);
+  color: var(--dz-ink);
   font-size: 14px;
   font-weight: 600;
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all var(--transition);
+  box-shadow: var(--shadow-brand);
 }
 
 .export-final-btn:hover {
-  background: var(--primary-hover);
+  filter: brightness(1.05);
 }
 
 /* Loading Overlay */
@@ -830,7 +936,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(10, 10, 11, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;

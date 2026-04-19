@@ -420,12 +420,16 @@ function formatTime(seconds) {
 
 // Update preview
 function updatePreview() {
+  // Aspect ratio
+  elements.previewWrapper.setAttribute('data-aspect', state.aspectRatio);
+
   // Background
   if (state.backgroundType === 'hidden') {
     elements.previewBackground.style.background = 'transparent';
     elements.previewWrapper.style.background = '#f8fafc';
   } else {
     elements.previewBackground.style.background = state.background;
+    elements.previewWrapper.style.background = '';
   }
 
   // Blur

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotlight Recorder</title>
+  <title>Demozar</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -12,18 +12,32 @@
     <header class="header">
       <div class="logo">
         <div class="logo-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="url(#gradient)" stroke-width="2"/>
-            <circle cx="12" cy="12" r="4" fill="url(#gradient)"/>
+          <svg width="24" height="24" viewBox="0 0 100 100" fill="none">
             <defs>
-              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#6366f1"/>
-                <stop offset="100%" stop-color="#8b5cf6"/>
+              <linearGradient id="mainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#17FEA0"/>
+                <stop offset="100%" stop-color="#01FD48"/>
+              </linearGradient>
+              <linearGradient id="shadowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0AA868"/>
+                <stop offset="100%" stop-color="#027A26"/>
+              </linearGradient>
+              <linearGradient id="highlightGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#B6FFD9"/>
+                <stop offset="100%" stop-color="#6CFFA3"/>
               </linearGradient>
             </defs>
+            <!-- Shadow -->
+            <path d="M 88 50 L 82 56 L 36 82 L 36 74 Z" fill="url(#shadowGrad)"/>
+            <path d="M 36 74 L 36 82 L 30 78 L 30 70 Z" fill="url(#shadowGrad)"/>
+            <!-- Main face -->
+            <path d="M 30 18 L 82 50 L 30 70 Z" fill="url(#mainGrad)"/>
+            <!-- Highlights -->
+            <path d="M 30 18 L 36 14 L 88 46 L 82 50 Z" fill="url(#highlightGrad)"/>
+            <path d="M 30 18 L 36 14 L 36 74 L 30 70 Z" fill="url(#highlightGrad)"/>
           </svg>
         </div>
-        <span class="logo-text">Spotlight</span>
+        <span class="logo-text">Demozar</span>
       </div>
       <button class="settings-btn" id="settingsBtn" title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -85,9 +99,9 @@
           <div class="setting-row">
             <span class="setting-label">Color</span>
             <div class="color-options">
-              <button class="color-btn active" data-color="#6366f1" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"></button>
+              <button class="color-btn active" data-color="#01FD48" style="background: linear-gradient(135deg, #17FEA0, #01FD48)"></button>
+              <button class="color-btn" data-color="#6366f1" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"></button>
               <button class="color-btn" data-color="#f59e0b" style="background: linear-gradient(135deg, #f59e0b, #fbbf24)"></button>
-              <button class="color-btn" data-color="#10b981" style="background: linear-gradient(135deg, #10b981, #34d399)"></button>
               <button class="color-btn" data-color="#ef4444" style="background: linear-gradient(135deg, #ef4444, #f87171)"></button>
               <button class="color-btn" data-color="#ec4899" style="background: linear-gradient(135deg, #ec4899, #f472b6)"></button>
             </div>
@@ -209,7 +223,7 @@
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-name">Watermark</span>
-              <span class="setting-desc">Show "Made with Spotlight" watermark</span>
+              <span class="setting-desc">Show "Made with Demozar" watermark</span>
             </div>
             <label class="toggle">
               <input type="checkbox" id="watermarkEnabled">
@@ -240,7 +254,7 @@
       </div>
 
       <footer class="settings-footer">
-        <span>Spotlight Recorder v1.0.0</span>
+        <span>Demozar v1.0.0</span>
         <span class="divider">•</span>
         <a href="https://github.com/muhammedanaskhan" target="_blank">Made with love</a>
       </footer>
@@ -269,7 +283,7 @@
         </div>
 
         <div class="promo-section">
-          <p class="promo-text">Like Spotlight? Check out more tools</p>
+          <p class="promo-text">Like Demozar? Check out more tools</p>
           <a href="https://github.com/muhammedanaskhan" target="_blank" class="promo-link">
             Explore More Projects
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

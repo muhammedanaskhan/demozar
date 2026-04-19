@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Create PNG icons without external dependencies
-// Uses pure Node.js to create valid PNG files
+// Create PNG icons for Demozar extension
+// Uses pure Node.js to create valid PNG files with the 3D ribbon logo
 
 const fs = require('fs');
 const path = require('path');
@@ -40,20 +40,18 @@ function createChunk(type, data) {
 }
 
 function createPNG(width, height, pixels) {
-  // IHDR chunk
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr.writeUInt8(8, 8);  // bit depth
-  ihdr.writeUInt8(6, 9);  // color type (RGBA)
-  ihdr.writeUInt8(0, 10); // compression method
-  ihdr.writeUInt8(0, 11); // filter method
-  ihdr.writeUInt8(0, 12); // interlace method
+  ihdr.writeUInt8(8, 8);
+  ihdr.writeUInt8(6, 9);
+  ihdr.writeUInt8(0, 10);
+  ihdr.writeUInt8(0, 11);
+  ihdr.writeUInt8(0, 12);
 
-  // Create raw image data with filter bytes
   const rawData = Buffer.alloc((width * 4 + 1) * height);
   for (let y = 0; y < height; y++) {
-    rawData[y * (width * 4 + 1)] = 0; // Filter type: None
+    rawData[y * (width * 4 + 1)] = 0;
     for (let x = 0; x < width; x++) {
       const srcIdx = (y * width + x) * 4;
       const dstIdx = y * (width * 4 + 1) + 1 + x * 4;
@@ -64,10 +62,7 @@ function createPNG(width, height, pixels) {
     }
   }
 
-  // Compress image data
   const compressed = zlib.deflateSync(rawData, { level: 9 });
-
-  // Create IEND chunk
   const iend = Buffer.alloc(0);
 
   return Buffer.concat([
@@ -85,7 +80,7 @@ function hexToRgb(hex) {
     r: parseInt(result[1], 16),
     g: parseInt(result[2], 16),
     b: parseInt(result[3], 16)
-  } : { r: 99, g: 102, b: 241 };
+  } : { r: 0, g: 0, b: 0 };
 }
 
 function lerp(a, b, t) {
@@ -100,95 +95,133 @@ function lerpColor(c1, c2, t) {
   };
 }
 
-// Generate icon pixels
-function generateIconPixels(size) {
-  const pixels = new Uint8Array(size * size * 4);
-  const center = size / 2;
-  const cornerRadius = size * 0.2;
+// Check if point is inside polygon
+function pointInPolygon(x, y, vertices) {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i][0], yi = vertices[i][1];
+    const xj = vertices[j][0], yj = vertices[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
 
-  const color1 = hexToRgb('#6366f1');
-  const color2 = hexToRgb('#8b5cf6');
+// Demozar brand colors
+const BRAND = {
+  main1: hexToRgb('#17FEA0'),  // gradient start
+  main2: hexToRgb('#01FD48'),  // gradient end
+  dark1: hexToRgb('#0AA868'),  // shadow start
+  dark2: hexToRgb('#027A26'),  // shadow end
+  light1: hexToRgb('#B6FFD9'), // highlight start
+  light2: hexToRgb('#6CFFA3'), // highlight end
+  ink: hexToRgb('#0B1A12'),    // dark background
+};
+
+// Generate Demozar ribbon logo pixels
+function generateDemozarLogo(size, withBackground = true) {
+  const pixels = new Uint8Array(size * size * 4);
+  const scale = size / 100;
+
+  // Logo polygon paths (scaled from 100x100 viewBox)
+  // Path 1: Bottom shadow - M 88 50 L 82 56 L 36 82 L 36 74 Z
+  const shadow1 = [[88, 50], [82, 56], [36, 82], [36, 74]].map(p => [p[0] * scale, p[1] * scale]);
+
+  // Path 2: Left shadow - M 36 74 L 36 82 L 30 78 L 30 70 Z
+  const shadow2 = [[36, 74], [36, 82], [30, 78], [30, 70]].map(p => [p[0] * scale, p[1] * scale]);
+
+  // Path 3: Main face - M 30 18 L 82 50 L 30 70 Z
+  const mainFace = [[30, 18], [82, 50], [30, 70]].map(p => [p[0] * scale, p[1] * scale]);
+
+  // Path 4: Top highlight - M 30 18 L 36 14 L 88 46 L 82 50 Z
+  const topHighlight = [[30, 18], [36, 14], [88, 46], [82, 50]].map(p => [p[0] * scale, p[1] * scale]);
+
+  // Path 5: Left highlight - M 30 18 L 36 14 L 36 74 L 30 70 Z
+  const leftHighlight = [[30, 18], [36, 14], [36, 74], [30, 70]].map(p => [p[0] * scale, p[1] * scale]);
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
+      const t = (x + y) / (size * 2); // gradient factor
 
-      // Check if inside rounded rectangle
-      let inside = false;
-      if (x >= cornerRadius && x < size - cornerRadius) {
-        inside = true;
-      } else if (y >= cornerRadius && y < size - cornerRadius) {
-        inside = true;
+      // Default: transparent or dark background
+      if (withBackground) {
+        pixels[idx] = BRAND.ink.r;
+        pixels[idx + 1] = BRAND.ink.g;
+        pixels[idx + 2] = BRAND.ink.b;
+        pixels[idx + 3] = 255;
       } else {
-        // Check corners
-        const corners = [
-          [cornerRadius, cornerRadius],
-          [size - cornerRadius, cornerRadius],
-          [cornerRadius, size - cornerRadius],
-          [size - cornerRadius, size - cornerRadius]
-        ];
-        for (const [cx, cy] of corners) {
-          const dx = x - cx;
-          const dy = y - cy;
-          if (Math.abs(x - center) >= Math.abs(cx - center) &&
-              Math.abs(y - center) >= Math.abs(cy - center) &&
-              dx * dx + dy * dy <= cornerRadius * cornerRadius) {
-            inside = true;
-            break;
-          }
-        }
-      }
-
-      if (!inside) {
         pixels[idx] = 0;
         pixels[idx + 1] = 0;
         pixels[idx + 2] = 0;
         pixels[idx + 3] = 0;
-        continue;
       }
 
-      // Gradient color based on position
-      const t = (x + y) / (size * 2);
-      const bgColor = lerpColor(color1, color2, t);
+      // Check which part of the logo this pixel belongs to
+      // Order matters - later parts are drawn on top
 
-      // Distance from center
-      const dx = x - center;
-      const dy = y - center;
+      if (pointInPolygon(x, y, shadow1) || pointInPolygon(x, y, shadow2)) {
+        // Dark shadow
+        const color = lerpColor(BRAND.dark1, BRAND.dark2, t);
+        pixels[idx] = color.r;
+        pixels[idx + 1] = color.g;
+        pixels[idx + 2] = color.b;
+        pixels[idx + 3] = 255;
+      }
+
+      if (pointInPolygon(x, y, mainFace)) {
+        // Main green face
+        const color = lerpColor(BRAND.main1, BRAND.main2, t);
+        pixels[idx] = color.r;
+        pixels[idx + 1] = color.g;
+        pixels[idx + 2] = color.b;
+        pixels[idx + 3] = 255;
+      }
+
+      if (pointInPolygon(x, y, topHighlight) || pointInPolygon(x, y, leftHighlight)) {
+        // Light highlight
+        const color = lerpColor(BRAND.light1, BRAND.light2, t);
+        pixels[idx] = color.r;
+        pixels[idx + 1] = color.g;
+        pixels[idx + 2] = color.b;
+        pixels[idx + 3] = 255;
+      }
+    }
+  }
+
+  return pixels;
+}
+
+// Generate recording icon (with red indicator)
+function generateRecordingIcon(size) {
+  const pixels = generateDemozarLogo(size, true);
+  const scale = size / 100;
+
+  // Add red recording dot in top-right
+  const dotCenterX = 78 * scale;
+  const dotCenterY = 22 * scale;
+  const outerRadius = 18 * scale;
+  const innerRadius = 10 * scale;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const dx = x - dotCenterX;
+      const dy = y - dotCenterY;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // Outer ring
-      const outerRingRadius = size * 0.35;
-      const ringWidth = Math.max(1.5, size * 0.04);
-      const outerRingDist = Math.abs(dist - outerRingRadius);
-
-      // Inner circle
-      const innerRadius = size * 0.15;
-
       if (dist < innerRadius) {
-        // Inner white circle
+        // White inner circle
         pixels[idx] = 255;
         pixels[idx + 1] = 255;
         pixels[idx + 2] = 255;
         pixels[idx + 3] = 255;
-      } else if (outerRingDist < ringWidth) {
-        // Outer ring (white with some antialiasing)
-        const alpha = Math.max(0, 1 - outerRingDist / ringWidth);
-        pixels[idx] = Math.round(lerp(bgColor.r, 255, alpha));
-        pixels[idx + 1] = Math.round(lerp(bgColor.g, 255, alpha));
-        pixels[idx + 2] = Math.round(lerp(bgColor.b, 255, alpha));
-        pixels[idx + 3] = 255;
-      } else if (outerRingDist < ringWidth * 2) {
-        // Glow around ring
-        const alpha = Math.max(0, (1 - (outerRingDist - ringWidth) / ringWidth) * 0.3);
-        pixels[idx] = Math.round(lerp(bgColor.r, 255, alpha));
-        pixels[idx + 1] = Math.round(lerp(bgColor.g, 255, alpha));
-        pixels[idx + 2] = Math.round(lerp(bgColor.b, 255, alpha));
-        pixels[idx + 3] = 255;
-      } else {
-        // Background
-        pixels[idx] = bgColor.r;
-        pixels[idx + 1] = bgColor.g;
-        pixels[idx + 2] = bgColor.b;
+      } else if (dist < outerRadius) {
+        // Red outer circle
+        pixels[idx] = 239; // #ef4444
+        pixels[idx + 1] = 68;
+        pixels[idx + 2] = 68;
         pixels[idx + 3] = 255;
       }
     }
@@ -206,11 +239,20 @@ if (!fs.existsSync(iconsDir)) {
 }
 
 sizes.forEach(size => {
-  const pixels = generateIconPixels(size);
+  // Normal icon
+  const pixels = generateDemozarLogo(size, true);
   const png = createPNG(size, size, pixels);
   const filename = path.join(iconsDir, `icon${size}.png`);
   fs.writeFileSync(filename, png);
   console.log(`Created ${filename}`);
+
+  // Recording icon
+  const recPixels = generateRecordingIcon(size);
+  const recPng = createPNG(size, size, recPixels);
+  const recFilename = path.join(iconsDir, `icon${size}-recording.png`);
+  fs.writeFileSync(recFilename, recPng);
+  console.log(`Created ${recFilename}`);
 });
 
-console.log('\nAll PNG icons created successfully!');
+console.log('\nAll Demozar icons created successfully!');
+console.log('Brand colors: #17FEA0 → #01FD48 (green gradient)');

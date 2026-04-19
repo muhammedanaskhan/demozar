@@ -3,7 +3,7 @@ let state = {
   source: 'tab',
   spotlightEnabled: true,
   spotlightSize: 80,
-  spotlightColor: '#6366f1',
+  spotlightColor: '#01FD48',
   spotlightStyle: 'glow',
   countdownEnabled: true,
   audioEnabled: true,
