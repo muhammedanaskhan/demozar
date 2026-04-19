@@ -25,7 +25,8 @@
     "tabs",
     "downloads",
     "scripting",
-    "offscreen"
+    "offscreen",
+    "tabCapture"
   ],
   "host_permissions": [
     "<all_urls>"

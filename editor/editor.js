@@ -92,10 +92,17 @@ async function loadVideo() {
 
     request.onsuccess = () => {
       const data = request.result;
+      console.log('[Editor] IndexedDB data:', data);
       if (data && data.blob) {
+        console.log('[Editor] Blob from DB:', data.blob, 'size:', data.blob.size, 'type:', data.blob.type);
         state.videoBlob = data.blob;
         state.videoUrl = URL.createObjectURL(data.blob);
+        console.log('[Editor] Created blob URL:', state.videoUrl);
         elements.videoPlayer.src = state.videoUrl;
+
+        elements.videoPlayer.onerror = (e) => {
+          console.error('[Editor] Video error:', elements.videoPlayer.error);
+        };
 
         elements.videoPlayer.onloadedmetadata = () => {
           // WebM from MediaRecorder often has Infinity duration initially

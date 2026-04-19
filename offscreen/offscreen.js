@@ -4,8 +4,19 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let currentSettings = null;
 
+console.log('[Offscreen] Script loaded and ready');
+
+// Helper to log to background (appears in service worker console)
+function logToBackground(msg) {
+  chrome.runtime.sendMessage({ type: 'LOG', message: msg }).catch(() => {});
+}
+
+logToBackground('Offscreen script loaded');
+
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[Offscreen] Received message:', message.type, 'target:', message.target);
+
   if (message.target !== 'offscreen') {
     return false;
   }
@@ -45,37 +56,90 @@ async function startRecording(settings) {
     recordedChunks = [];
 
     console.log('[Offscreen] Starting recording with settings:', settings);
+    logToBackground('Starting recording, source: ' + settings.source);
 
-    // Build getDisplayMedia constraints
-    const displayMediaOptions = {
-      video: {
-        cursor: 'always',
-        ...getVideoConstraints(settings.quality)
-      },
-      audio: settings.audioEnabled
-    };
+    // Check if we have a stream ID for tab capture
+    if (settings.streamId) {
+      logToBackground('Using tab capture with stream ID');
 
-    if (settings.source === 'tab') {
-      displayMediaOptions.preferCurrentTab = true;
-      displayMediaOptions.selfBrowserSurface = 'include';
-    } else if (settings.source === 'window') {
-      displayMediaOptions.selfBrowserSurface = 'exclude';
+      try {
+        // Use getUserMedia with the tab capture stream ID
+        const videoConstraints = getVideoConstraints(settings.quality);
+
+        const constraints = {
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'tab',
+              chromeMediaSourceId: settings.streamId
+            }
+          },
+          video: {
+            mandatory: {
+              chromeMediaSource: 'tab',
+              chromeMediaSourceId: settings.streamId,
+              maxWidth: videoConstraints.width?.ideal || 1920,
+              maxHeight: videoConstraints.height?.ideal || 1080,
+              maxFrameRate: videoConstraints.frameRate?.ideal || 30
+            }
+          }
+        };
+
+        logToBackground('Calling getUserMedia...');
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+        const videoTracks = mediaStream.getVideoTracks();
+        const audioTracks = mediaStream.getAudioTracks();
+        logToBackground('Got stream - video: ' + videoTracks.length + ', audio: ' + audioTracks.length);
+
+        if (videoTracks.length === 0) {
+          throw new Error('No video track obtained from tab capture');
+        }
+
+        // Verify track is live
+        const videoTrack = videoTracks[0];
+        logToBackground('Video track state: ' + videoTrack.readyState + ', enabled: ' + videoTrack.enabled);
+        if (videoTrack.readyState !== 'live') {
+          throw new Error('Video track is not live: ' + videoTrack.readyState);
+        }
+      } catch (tabError) {
+        logToBackground('Tab capture FAILED: ' + tabError.message);
+        throw new Error('Tab capture failed: ' + tabError.message);
+      }
+    } else if (settings.source === 'tab') {
+      // Tab capture requested but no stream ID - this shouldn't happen
+      console.error('[Offscreen] Tab capture requested but no stream ID provided');
+      throw new Error('Tab capture requires a stream ID. Please try screen capture instead.');
+    } else {
+      // Use getDisplayMedia for screen/window capture
+      console.log('[Offscreen] Using getDisplayMedia for', settings.source);
+
+      const displayMediaOptions = {
+        video: {
+          cursor: 'always',
+          ...getVideoConstraints(settings.quality)
+        },
+        audio: settings.audioEnabled
+      };
+
+      if (settings.source === 'window') {
+        displayMediaOptions.selfBrowserSurface = 'exclude';
+      }
+
+      if (settings.audioEnabled) {
+        displayMediaOptions.systemAudio = 'include';
+      }
+
+      mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+      console.log('[Offscreen] Got display media stream');
     }
-
-    if (settings.audioEnabled) {
-      displayMediaOptions.systemAudio = 'include';
-    }
-
-    // Request display media
-    mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
-    console.log('[Offscreen] Got media stream');
 
     // Handle stream ending
     mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
-      console.log('[Offscreen] Stream ended by user');
+      logToBackground('Stream ended by user/system');
       stopRecording();
     });
 
+    logToBackground('Starting MediaRecorder...');
     // Start MediaRecorder directly on the stream
     startMediaRecorder(settings);
 
@@ -125,12 +189,14 @@ function startMediaRecorder(settings) {
   mediaRecorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
       recordedChunks.push(event.data);
-      console.log('[Offscreen] Chunk received:', event.data.size, 'bytes, total:', recordedChunks.length);
+      logToBackground('Chunk: ' + event.data.size + ' bytes, total: ' + recordedChunks.length);
+    } else {
+      logToBackground('Empty chunk received!');
     }
   };
 
   mediaRecorder.onstop = () => {
-    console.log('[Offscreen] MediaRecorder stopped');
+    logToBackground('MediaRecorder stopped, chunks: ' + recordedChunks.length);
     processRecording();
   };
 
@@ -140,10 +206,19 @@ function startMediaRecorder(settings) {
   };
 
   mediaRecorder.onstart = () => {
-    console.log('[Offscreen] MediaRecorder started');
+    console.log('[Offscreen] MediaRecorder started, state:', mediaRecorder.state);
+    // Log stream state
+    if (mediaStream) {
+      const tracks = mediaStream.getTracks();
+      tracks.forEach(track => {
+        console.log('[Offscreen] Track:', track.kind, 'state:', track.readyState, 'enabled:', track.enabled);
+      });
+    }
   };
 
+  console.log('[Offscreen] Starting MediaRecorder...');
   mediaRecorder.start(1000);
+  console.log('[Offscreen] MediaRecorder.start() called, state:', mediaRecorder.state);
 }
 
 // Get appropriate MIME type
@@ -211,18 +286,20 @@ function resumeRecording() {
 
 // Process recording and send to background
 async function processRecording() {
-  console.log('[Offscreen] Processing recording, chunks:', recordedChunks.length);
+  logToBackground('Processing recording, chunks: ' + recordedChunks.length);
 
   if (recordedChunks.length === 0) {
+    logToBackground('ERROR: No chunks to process!');
     sendRecordingError('No recording data captured');
     return;
   }
 
   try {
     const mimeType = mediaRecorder?.mimeType || 'video/webm';
+    logToBackground('Creating blob with mimeType: ' + mimeType);
     const blob = new Blob(recordedChunks, { type: mimeType });
 
-    console.log('[Offscreen] Recording blob size:', (blob.size / 1024 / 1024).toFixed(2), 'MB');
+    logToBackground('Blob created, size: ' + (blob.size / 1024 / 1024).toFixed(2) + ' MB');
 
     let format = 'webm';
     if (mimeType.includes('mp4')) {
@@ -231,7 +308,7 @@ async function processRecording() {
 
     const reader = new FileReader();
     reader.onload = () => {
-      console.log('[Offscreen] Sending recording to background');
+      logToBackground('FileReader done, sending RECORDING_DATA to background');
       chrome.runtime.sendMessage({
         type: 'RECORDING_DATA',
         data: reader.result,
@@ -239,12 +316,13 @@ async function processRecording() {
       });
     };
     reader.onerror = () => {
+      logToBackground('FileReader ERROR');
       sendRecordingError('Failed to process recording');
     };
     reader.readAsDataURL(blob);
 
   } catch (error) {
-    console.error('[Offscreen] Error processing recording:', error);
+    logToBackground('processRecording ERROR: ' + error.message);
     sendRecordingError('Failed to process recording');
   }
 

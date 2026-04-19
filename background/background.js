@@ -49,6 +49,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       return false;
 
+    case 'LOG':
+      console.log('[Offscreen Log]', message.message);
+      return false;
+
     case 'GET_STATE':
       sendResponse({
         isRecording: recordingState.isRecording,
@@ -66,6 +70,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'RECORDING_DATA':
+      console.log('[Background] Got RECORDING_DATA message');
       handleRecordingData(message.data, message.format);
       return false;
 
@@ -117,14 +122,50 @@ async function startRecording(settings) {
     // Create offscreen document
     await setupOffscreenDocument();
 
-    // Small delay to ensure offscreen document is ready
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Wait for offscreen document to be ready
+    console.log('[Background] Waiting for offscreen document to initialize...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // For tab capture, get a stream ID first
+    let streamId = null;
+    if (settings.source === 'tab' && settings.tabId) {
+      console.log('[Background] Getting stream ID for tab:', settings.tabId);
+      streamId = await new Promise((resolve, reject) => {
+        chrome.tabCapture.getMediaStreamId(
+          { targetTabId: settings.tabId },
+          (id) => {
+            if (chrome.runtime.lastError) {
+              console.error('[Background] Tab capture error:', chrome.runtime.lastError);
+              reject(new Error(chrome.runtime.lastError.message));
+            } else if (id) {
+              console.log('[Background] Got tab capture stream ID:', id);
+              resolve(id);
+            } else {
+              reject(new Error('Failed to get stream ID'));
+            }
+          }
+        );
+      });
+    }
 
     // Send recording request to offscreen document
-    await sendToOffscreen({
-      type: 'START_RECORDING',
-      settings: settings
-    });
+    console.log('[Background] Sending START_RECORDING to offscreen, streamId:', streamId ? 'present' : 'null');
+    try {
+      const response = await sendToOffscreen({
+        type: 'START_RECORDING',
+        settings: {
+          ...settings,
+          streamId: streamId
+        }
+      });
+      console.log('[Background] Offscreen response:', response);
+      if (response && !response.success) {
+        throw new Error(response.error || 'Recording failed in offscreen');
+      }
+    } catch (sendError) {
+      console.error('[Background] Failed to send to offscreen:', sendError);
+      throw sendError;
+    }
 
   } catch (error) {
     console.error('Error starting recording:', error);
@@ -156,17 +197,21 @@ async function setupOffscreenDocument() {
       contextTypes: ['OFFSCREEN_DOCUMENT']
     });
 
+    // Close existing offscreen document to ensure fresh state
     if (existingContexts.length > 0) {
-      return;
+      console.log('[Background] Closing existing offscreen document');
+      await chrome.offscreen.closeDocument();
     }
 
+    console.log('[Background] Creating offscreen document');
     await chrome.offscreen.createDocument({
       url: 'offscreen/offscreen.html',
-      reasons: ['DISPLAY_MEDIA'],
-      justification: 'Recording screen content with getDisplayMedia'
+      reasons: ['DISPLAY_MEDIA', 'USER_MEDIA'],
+      justification: 'Recording screen/tab content with getDisplayMedia or getUserMedia'
     });
+    console.log('[Background] Offscreen document created');
   } catch (e) {
-    console.log('Offscreen setup error:', e);
+    console.error('[Background] Offscreen setup error:', e);
     throw e;
   }
 }
@@ -214,13 +259,17 @@ function resumeRecording() {
 
 // Handle recording data from offscreen
 async function handleRecordingData(dataUrl, format) {
+  console.log('[Background] Received RECORDING_DATA, format:', format, 'dataUrl length:', dataUrl?.length);
+
   try {
     // Convert data URL to Blob
     const response = await fetch(dataUrl);
     const blob = await response.blob();
+    console.log('[Background] Blob created from dataUrl, size:', blob.size, 'type:', blob.type);
 
     // Store in IndexedDB
     await storeRecording(blob, format);
+    console.log('[Background] Recording stored in IndexedDB');
 
     recordingState.isRecording = false;
     recordingState.isPaused = false;
