@@ -827,7 +827,7 @@ function getEditedDuration() {
 // Open IndexedDB
 function openDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('DemozarRecorder', 1);
+    const request = indexedDB.open('DaddyRecorder', 1);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
@@ -1627,7 +1627,7 @@ function updatePreview() {
 
   // Frame style
   // Default: No custom frame, video shows its own browser chrome
-  // Minimal: Show custom Demozar frame
+  // Minimal: Show custom DaddyRecorder frame
   // Hidden: No frame at all
   if (state.frameStyle === 'minimal') {
     elements.minimalFrame.classList.remove('hidden');
@@ -1745,7 +1745,7 @@ async function exportVideo() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `demozar-export-${Date.now()}.${format}`;
+        a.download = `daddyrecorder-export-${Date.now()}.${format}`;
         a.click();
 
         elements.loadingOverlay.classList.add('hidden');
@@ -1853,7 +1853,7 @@ async function exportVideo() {
           ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('demozar.com', urlBarX + urlBarWidth / 2, urlBarY + urlBarHeight / 2);
+          ctx.fillText('daddyrecorder.com', urlBarX + urlBarWidth / 2, urlBarY + urlBarHeight / 2);
         }
       }
 

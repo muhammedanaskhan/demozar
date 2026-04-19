@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Create PNG icons for Demozar extension
+// Create PNG icons for DaddyRecorder extension
 // Uses pure Node.js to create valid PNG files with the 3D ribbon logo
 
 const fs = require('fs');
@@ -108,7 +108,7 @@ function pointInPolygon(x, y, vertices) {
   return inside;
 }
 
-// Demozar brand colors
+// DaddyRecorder brand colors
 const BRAND = {
   main1: hexToRgb('#17FEA0'),  // gradient start
   main2: hexToRgb('#01FD48'),  // gradient end
@@ -119,8 +119,8 @@ const BRAND = {
   ink: hexToRgb('#0B1A12'),    // dark background
 };
 
-// Generate Demozar ribbon logo pixels
-function generateDemozarLogo(size, withBackground = true) {
+// Generate DaddyRecorder ribbon logo pixels
+function generateDaddyRecorderLogo(size, withBackground = true) {
   const pixels = new Uint8Array(size * size * 4);
   const scale = size / 100;
 
@@ -195,7 +195,7 @@ function generateDemozarLogo(size, withBackground = true) {
 
 // Generate recording icon (with red indicator)
 function generateRecordingIcon(size) {
-  const pixels = generateDemozarLogo(size, true);
+  const pixels = generateDaddyRecorderLogo(size, true);
   const scale = size / 100;
 
   // Add red recording dot in top-right
@@ -240,7 +240,7 @@ if (!fs.existsSync(iconsDir)) {
 
 sizes.forEach(size => {
   // Normal icon
-  const pixels = generateDemozarLogo(size, true);
+  const pixels = generateDaddyRecorderLogo(size, true);
   const png = createPNG(size, size, pixels);
   const filename = path.join(iconsDir, `icon${size}.png`);
   fs.writeFileSync(filename, png);
@@ -254,5 +254,5 @@ sizes.forEach(size => {
   console.log(`Created ${recFilename}`);
 });
 
-console.log('\nAll Demozar icons created successfully!');
+console.log('\nAll DaddyRecorder icons created successfully!');
 console.log('Brand colors: #17FEA0 → #01FD48 (green gradient)');

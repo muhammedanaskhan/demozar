@@ -1,13 +1,13 @@
-// Demozar Content Script
+// DaddyRecorder Content Script
 // Minimal content script - spotlight feature removed
 (function() {
   'use strict';
 
   // Prevent duplicate initialization
-  if (window.__demozarLoaded) {
+  if (window.__daddyRecorderLoaded) {
     return;
   }
-  window.__demozarLoaded = true;
+  window.__daddyRecorderLoaded = true;
 
   // Listen for messages from background (for future features)
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

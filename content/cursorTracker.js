@@ -1,13 +1,13 @@
 // Cursor Tracker - Injected into recorded tab to track mouse position
 (function() {
-  console.log('[Demozar] Cursor tracker script loaded');
+  console.log('[DaddyRecorder] Cursor tracker script loaded');
 
   // Avoid re-injection
-  if (window.__demozarCursorTracker) {
-    console.log('[Demozar] Cursor tracker already exists');
+  if (window.__daddyRecorderCursorTracker) {
+    console.log('[DaddyRecorder] Cursor tracker already exists');
     return;
   }
-  window.__demozarCursorTracker = true;
+  window.__daddyRecorderCursorTracker = true;
 
   let isTracking = false;
   let startTime = 0;
@@ -15,7 +15,7 @@
 
   // Listen for messages from background
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[Demozar] Received message:', message.type);
+    console.log('[DaddyRecorder] Received message:', message.type);
     if (message.type === 'START_CURSOR_TRACKING') {
       startTracking();
       sendResponse({ success: true, status: 'tracking_started' });
@@ -23,7 +23,7 @@
       // Reset start time to sync with actual recording start
       startTime = Date.now();
       messageCount = 0;
-      console.log('[Demozar] Timer reset to sync with recording');
+      console.log('[DaddyRecorder] Timer reset to sync with recording');
       sendResponse({ success: true });
     } else if (message.type === 'STOP_CURSOR_TRACKING') {
       stopTracking();
@@ -34,7 +34,7 @@
 
   function startTracking() {
     if (isTracking) {
-      console.log('[Demozar] Already tracking');
+      console.log('[DaddyRecorder] Already tracking');
       return;
     }
     isTracking = true;
@@ -42,13 +42,13 @@
     messageCount = 0;
 
     document.addEventListener('mousemove', handleMouseMove, { passive: true });
-    console.log('[Demozar] ✓ Cursor tracking STARTED at', new Date().toISOString());
+    console.log('[DaddyRecorder] ✓ Cursor tracking STARTED at', new Date().toISOString());
   }
 
   function stopTracking() {
     isTracking = false;
     document.removeEventListener('mousemove', handleMouseMove);
-    console.log('[Demozar] Cursor tracking STOPPED. Total messages sent:', messageCount);
+    console.log('[DaddyRecorder] Cursor tracking STOPPED. Total messages sent:', messageCount);
   }
 
   // Throttle to ~30fps to avoid too much data
@@ -74,10 +74,10 @@
     }).then(() => {
       messageCount++;
       if (messageCount % 30 === 0) {
-        console.log('[Demozar] Sent', messageCount, 'cursor positions');
+        console.log('[DaddyRecorder] Sent', messageCount, 'cursor positions');
       }
     }).catch((err) => {
-      console.log('[Demozar] Failed to send cursor position:', err);
+      console.log('[DaddyRecorder] Failed to send cursor position:', err);
       // Extension might have been unloaded
       stopTracking();
     });
@@ -85,5 +85,5 @@
 
   // Auto-start if already recording (in case message was missed)
   // This helps if the script loads after START_CURSOR_TRACKING was sent
-  console.log('[Demozar] Cursor tracker ready and waiting for START_CURSOR_TRACKING message');
+  console.log('[DaddyRecorder] Cursor tracker ready and waiting for START_CURSOR_TRACKING message');
 })();
