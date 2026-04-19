@@ -942,22 +942,18 @@ function updatePreview() {
   }
 
   // Crop - hide menu bar and/or dock
-  // Menu bar ~3% from top, dock ~6% from bottom
-  const cropTop = state.hideMenuBar ? 3.5 : 0;
-  const cropBottom = state.hideDock ? 6 : 0;
+  // macOS menu bar + tab bar is ~4.5% from top
+  // macOS dock is ~7% from bottom
+  const menuBarPercent = 4.5;
+  const dockPercent = 7;
+
+  const cropTop = state.hideMenuBar ? menuBarPercent : 0;
+  const cropBottom = state.hideDock ? dockPercent : 0;
 
   if (cropTop > 0 || cropBottom > 0) {
-    // Calculate how much of video we're keeping
-    const keepPercent = 100 - cropTop - cropBottom;
-    // Scale factor to fill the original space
-    const scale = 100 / keepPercent;
-    // Translate to shift cropped area out of view
-    // Positive = move down, Negative = move up
-    const shiftPercent = (cropTop - cropBottom) / 2;
-
-    elements.videoPlayer.style.clipPath = `inset(${cropTop}% 0 ${cropBottom}% 0)`;
-    elements.videoPlayer.style.transform = `scale(${scale.toFixed(3)}) translateY(${shiftPercent.toFixed(2)}%)`;
-    elements.videoPlayer.style.transformOrigin = 'center center';
+    // Use clipPath with rounded corners for clean look
+    elements.videoPlayer.style.clipPath = `inset(${cropTop}% 0 ${cropBottom}% 0 round 12px)`;
+    elements.videoPlayer.style.transform = 'none';
   } else {
     elements.videoPlayer.style.clipPath = 'none';
     elements.videoPlayer.style.transform = 'none';
@@ -1022,9 +1018,10 @@ async function exportVideo() {
       video.onloadedmetadata = resolve;
     });
 
-    // Apply crop if enabled
-    const cropTop = state.hideMenuBar ? 0.035 : 0;
-    const cropBottom = state.hideDock ? 0.06 : 0;
+    // Apply crop if enabled (matching preview values)
+    // macOS menu bar + tab bar ~4.5% from top, dock ~7% from bottom
+    const cropTop = state.hideMenuBar ? 0.045 : 0;
+    const cropBottom = state.hideDock ? 0.07 : 0;
     const srcY = video.videoHeight * cropTop;
     const srcHeight = video.videoHeight * (1 - cropTop - cropBottom);
     const effectiveAspect = video.videoWidth / srcHeight;
@@ -1194,12 +1191,17 @@ async function exportVideo() {
         }
       }
 
-      // Draw video frame with crop
+      // Draw video frame with crop and rounded corners
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(videoX, videoY, videoWidth, videoHeight, 12);
+      ctx.clip();
       ctx.drawImage(
         video,
         0, srcY, video.videoWidth, srcHeight,  // Source: cropped area
         videoX, videoY, videoWidth, videoHeight // Destination
       );
+      ctx.restore();
 
       // Draw border if enabled
       if (state.frameBorder) {
