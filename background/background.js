@@ -119,7 +119,7 @@ async function setRecordingUI(isRecording) {
       // Re-enable popup
       await chrome.action.setPopup({ popup: 'popup/popup.html' });
       // Restore tooltip
-      await chrome.action.setTitle({ title: 'Demozar' });
+      await chrome.action.setTitle({ title: 'DaddyRecorder' });
     }
   } catch (e) {
     console.error('Error setting UI:', e);
@@ -355,7 +355,7 @@ async function handleRecordingData(dataUrl, format) {
 // Store recording in IndexedDB
 async function storeRecording(blob, format) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('DemozarRecorder', 1);
+    const request = indexedDB.open('DaddyRecorder', 1);
 
     request.onerror = () => reject(request.error);
 

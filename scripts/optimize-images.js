@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Optimize background images for Demozar extension
+ * Optimize background images for DaddyRecorder extension
  * - Resizes to max 1920px width (maintains aspect ratio)
  * - Converts to WebP format (much smaller than JPEG)
  * - Quality set to 85 (good balance of size/quality)
