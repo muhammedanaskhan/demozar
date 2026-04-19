@@ -3,8 +3,7 @@ let recordingState = {
   isRecording: false,
   isPaused: false,
   recordingTime: 0,
-  settings: null,
-  tabId: null
+  settings: null
 };
 
 // Timer interval
@@ -111,62 +110,25 @@ async function setRecordingUI(isRecording) {
 async function startRecording(settings) {
   try {
     recordingState.settings = settings;
-    recordingState.tabId = settings.tabId;
 
     console.log('[Background] Starting recording with settings:', {
-      source: settings.source,
       quality: settings.quality,
       format: settings.format
     });
 
-    // Create offscreen document
     await setupOffscreenDocument();
 
-    // Wait for offscreen document to be ready
-    console.log('[Background] Waiting for offscreen document to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // Small wait so the offscreen doc's message listener is registered.
+    await new Promise(resolve => setTimeout(resolve, 150));
 
-    // For tab capture, get a stream ID first
-    let streamId = null;
-    if (settings.source === 'tab' && settings.tabId) {
-      console.log('[Background] Getting stream ID for tab:', settings.tabId);
-      streamId = await new Promise((resolve, reject) => {
-        chrome.tabCapture.getMediaStreamId(
-          { targetTabId: settings.tabId },
-          (id) => {
-            if (chrome.runtime.lastError) {
-              console.error('[Background] Tab capture error:', chrome.runtime.lastError);
-              reject(new Error(chrome.runtime.lastError.message));
-            } else if (id) {
-              console.log('[Background] Got tab capture stream ID:', id);
-              resolve(id);
-            } else {
-              reject(new Error('Failed to get stream ID'));
-            }
-          }
-        );
-      });
+    const response = await sendToOffscreen({
+      type: 'START_RECORDING',
+      settings: settings
+    });
+    console.log('[Background] Offscreen response:', response);
+    if (response && !response.success) {
+      throw new Error(response.error || 'Recording failed in offscreen');
     }
-
-    // Send recording request to offscreen document
-    console.log('[Background] Sending START_RECORDING to offscreen, streamId:', streamId ? 'present' : 'null');
-    try {
-      const response = await sendToOffscreen({
-        type: 'START_RECORDING',
-        settings: {
-          ...settings,
-          streamId: streamId
-        }
-      });
-      console.log('[Background] Offscreen response:', response);
-      if (response && !response.success) {
-        throw new Error(response.error || 'Recording failed in offscreen');
-      }
-    } catch (sendError) {
-      console.error('[Background] Failed to send to offscreen:', sendError);
-      throw sendError;
-    }
-
   } catch (error) {
     console.error('Error starting recording:', error);
     throw error;

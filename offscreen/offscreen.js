@@ -56,81 +56,25 @@ async function startRecording(settings) {
     recordedChunks = [];
 
     console.log('[Offscreen] Starting recording with settings:', settings);
-    logToBackground('Starting recording, source: ' + settings.source);
+    logToBackground('Starting recording via getDisplayMedia');
 
-    // Check if we have a stream ID for tab capture
-    if (settings.streamId) {
-      logToBackground('Using tab capture with stream ID');
+    const displayMediaOptions = {
+      video: {
+        cursor: 'always',
+        ...getVideoConstraints(settings.quality)
+      },
+      audio: !!settings.audioEnabled,
+      selfBrowserSurface: 'exclude',
+      systemAudio: settings.audioEnabled ? 'include' : 'exclude'
+    };
 
-      try {
-        // Use getUserMedia with the tab capture stream ID
-        const videoConstraints = getVideoConstraints(settings.quality);
+    mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+    console.log('[Offscreen] Got display media stream');
 
-        const constraints = {
-          audio: {
-            mandatory: {
-              chromeMediaSource: 'tab',
-              chromeMediaSourceId: settings.streamId
-            }
-          },
-          video: {
-            mandatory: {
-              chromeMediaSource: 'tab',
-              chromeMediaSourceId: settings.streamId,
-              maxWidth: videoConstraints.width?.ideal || 1920,
-              maxHeight: videoConstraints.height?.ideal || 1080,
-              maxFrameRate: videoConstraints.frameRate?.ideal || 30
-            }
-          }
-        };
-
-        logToBackground('Calling getUserMedia...');
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        const videoTracks = mediaStream.getVideoTracks();
-        const audioTracks = mediaStream.getAudioTracks();
-        logToBackground('Got stream - video: ' + videoTracks.length + ', audio: ' + audioTracks.length);
-
-        if (videoTracks.length === 0) {
-          throw new Error('No video track obtained from tab capture');
-        }
-
-        // Verify track is live
-        const videoTrack = videoTracks[0];
-        logToBackground('Video track state: ' + videoTrack.readyState + ', enabled: ' + videoTrack.enabled);
-        if (videoTrack.readyState !== 'live') {
-          throw new Error('Video track is not live: ' + videoTrack.readyState);
-        }
-      } catch (tabError) {
-        logToBackground('Tab capture FAILED: ' + tabError.message);
-        throw new Error('Tab capture failed: ' + tabError.message);
-      }
-    } else if (settings.source === 'tab') {
-      // Tab capture requested but no stream ID - this shouldn't happen
-      console.error('[Offscreen] Tab capture requested but no stream ID provided');
-      throw new Error('Tab capture requires a stream ID. Please try screen capture instead.');
-    } else {
-      // Use getDisplayMedia for screen/window capture
-      console.log('[Offscreen] Using getDisplayMedia for', settings.source);
-
-      const displayMediaOptions = {
-        video: {
-          cursor: 'always',
-          ...getVideoConstraints(settings.quality)
-        },
-        audio: settings.audioEnabled
-      };
-
-      if (settings.source === 'window') {
-        displayMediaOptions.selfBrowserSurface = 'exclude';
-      }
-
-      if (settings.audioEnabled) {
-        displayMediaOptions.systemAudio = 'include';
-      }
-
-      mediaStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
-      console.log('[Offscreen] Got display media stream');
+    const videoTracks = mediaStream.getVideoTracks();
+    logToBackground('Got stream - video: ' + videoTracks.length + ', audio: ' + mediaStream.getAudioTracks().length);
+    if (videoTracks.length === 0) {
+      throw new Error('No video track obtained from display media');
     }
 
     // Handle stream ending
@@ -296,8 +240,11 @@ async function processRecording() {
 
   try {
     const mimeType = mediaRecorder?.mimeType || 'video/webm';
-    logToBackground('Creating blob with mimeType: ' + mimeType);
-    const blob = new Blob(recordedChunks, { type: mimeType });
+    // Strip the ";codecs=..." suffix. Some players reject a Blob whose
+    // declared MIME type includes codec strings even when the data is valid.
+    const blobMimeType = mimeType.split(';')[0];
+    logToBackground('Creating blob with mimeType: ' + blobMimeType + ' (recorder: ' + mimeType + ')');
+    const blob = new Blob(recordedChunks, { type: blobMimeType });
 
     logToBackground('Blob created, size: ' + (blob.size / 1024 / 1024).toFixed(2) + ' MB');
 

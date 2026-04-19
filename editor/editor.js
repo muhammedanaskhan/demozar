@@ -101,7 +101,8 @@ async function loadVideo() {
         elements.videoPlayer.src = state.videoUrl;
 
         elements.videoPlayer.onerror = (e) => {
-          console.error('[Editor] Video error:', elements.videoPlayer.error);
+          const err = elements.videoPlayer.error;
+          console.error('[Editor] Video error code:', err?.code, 'message:', err?.message, 'full:', err);
         };
 
         elements.videoPlayer.onloadedmetadata = () => {

@@ -1,7 +1,5 @@
 // State
 let state = {
-  source: 'tab',
-  countdownEnabled: true,
   audioEnabled: true,
   format: 'webm',
   quality: 'high',
@@ -17,8 +15,6 @@ const elements = {
   recordingView: document.getElementById('recordingView'),
   settingsView: document.getElementById('settingsView'),
   exportView: document.getElementById('exportView'),
-  countdownOverlay: document.getElementById('countdownOverlay'),
-  countdownNumber: document.getElementById('countdownNumber'),
   recordBtn: document.getElementById('recordBtn'),
   pauseBtn: document.getElementById('pauseBtn'),
   stopBtn: document.getElementById('stopBtn'),
@@ -27,7 +23,6 @@ const elements = {
   newRecordingBtn: document.getElementById('newRecordingBtn'),
   recTime: document.getElementById('recTime'),
   status: document.getElementById('status'),
-  countdownEnabled: document.getElementById('countdownEnabled'),
   audioEnabled: document.getElementById('audioEnabled'),
   formatSelect: document.getElementById('formatSelect'),
   qualitySelect: document.getElementById('qualitySelect'),
@@ -67,16 +62,6 @@ async function saveSettings() {
 
 // Bind event listeners
 function bindEvents() {
-  // Source buttons
-  document.querySelectorAll('.source-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.source = btn.dataset.source;
-      saveSettings();
-    });
-  });
-
   // Record button
   elements.recordBtn.addEventListener('click', startRecording);
 
@@ -103,11 +88,6 @@ function bindEvents() {
   });
 
   // Settings toggles
-  elements.countdownEnabled.addEventListener('change', (e) => {
-    state.countdownEnabled = e.target.checked;
-    saveSettings();
-  });
-
   elements.audioEnabled.addEventListener('change', (e) => {
     state.audioEnabled = e.target.checked;
     saveSettings();
@@ -144,13 +124,6 @@ function bindEvents() {
 
 // Update UI based on state
 function updateUI() {
-  // Source buttons
-  document.querySelectorAll('.source-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.source === state.source);
-  });
-
-  // Settings
-  elements.countdownEnabled.checked = state.countdownEnabled;
   elements.audioEnabled.checked = state.audioEnabled;
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
@@ -162,23 +135,13 @@ async function startRecording() {
   try {
     setStatus('Preparing...');
 
-    // Get current tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (state.countdownEnabled) {
-      await showCountdown();
-    }
-
-    // Send message to background to start recording
     chrome.runtime.sendMessage({
       type: 'START_RECORDING',
       settings: {
-        source: state.source,
         audioEnabled: state.audioEnabled,
         format: state.format,
         quality: state.quality,
-        watermarkEnabled: state.watermarkEnabled,
-        tabId: tab.id
+        watermarkEnabled: state.watermarkEnabled
       }
     });
 
@@ -190,28 +153,8 @@ async function startRecording() {
 
   } catch (error) {
     console.error('Error starting recording:', error);
-    showError('Failed to start recording');
+    showError('Failed: ' + (error?.message || 'unknown error'));
   }
-}
-
-// Show countdown
-function showCountdown() {
-  return new Promise((resolve) => {
-    elements.countdownOverlay.classList.remove('hidden');
-    let count = 3;
-    elements.countdownNumber.textContent = count;
-
-    const interval = setInterval(() => {
-      count--;
-      if (count > 0) {
-        elements.countdownNumber.textContent = count;
-      } else {
-        clearInterval(interval);
-        elements.countdownOverlay.classList.add('hidden');
-        resolve();
-      }
-    }, 1000);
-  });
 }
 
 // Toggle pause

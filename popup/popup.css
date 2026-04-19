@@ -249,6 +249,13 @@ body {
   box-shadow: 0 0 0 3px rgba(11, 26, 18, 0.3);
 }
 
+.record-hint {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 /* Status */
 .status {
   text-align: center;
@@ -340,35 +347,6 @@ body {
 .control-btn.paused {
   background: var(--warning);
   color: white;
-}
-
-/* Countdown Overlay */
-.countdown-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(10, 10, 11, 0.95);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.countdown-number {
-  font-size: 72px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #17FEA0, #01FD48);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: countdownPulse 1s ease-in-out infinite;
-}
-
-@keyframes countdownPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.1); opacity: 0.8; }
 }
 
 /* Settings View */
