@@ -1,0 +1,18 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.44" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="48" height="48" rx="9.600000000000001" fill="url(#grad)"/>
+  <circle cx="24" cy="24" r="16.799999999999997" stroke="white" stroke-width="1.92" fill="none" filter="url(#glow)" opacity="0.9"/>
+  <circle cx="24" cy="24" r="7.199999999999999" fill="white" filter="url(#glow)"/>
+</svg>

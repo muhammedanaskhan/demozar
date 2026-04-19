@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotlight Editor</title>
+  <link rel="stylesheet" href="editor.css">
+</head>
+<body>
+  <div class="editor-container">
+    <!-- Main Content Area -->
+    <main class="editor-main">
+      <!-- Video Preview -->
+      <div class="preview-container">
+        <div class="preview-wrapper" id="previewWrapper">
+          <div class="preview-background" id="previewBackground"></div>
+          <div class="preview-frame" id="previewFrame">
+            <div class="browser-frame" id="browserFrame">
+              <div class="browser-dots">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+              </div>
+            </div>
+            <video id="videoPlayer" class="video-player"></video>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="playback-controls">
+        <button class="play-btn" id="playBtn">
+          <svg class="play-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <svg class="pause-icon hidden" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16"/>
+            <rect x="14" y="4" width="4" height="16"/>
+          </svg>
+        </button>
+        <div class="time-display">
+          <span id="currentTime">00:00</span>
+          <span class="time-separator">/</span>
+          <span id="duration">00:00</span>
+        </div>
+        <div class="progress-container">
+          <div class="progress-bar" id="progressBar">
+            <div class="progress-filled" id="progressFilled"></div>
+            <div class="progress-handle" id="progressHandle"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline-container">
+        <div class="timeline-tools">
+          <button class="timeline-btn" title="Add segment">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Add a segment</span>
+          </button>
+          <button class="timeline-btn icon-only" title="Zoom in">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              <line x1="11" y1="8" x2="11" y2="14"></line>
+              <line x1="8" y1="11" x2="14" y2="11"></line>
+            </svg>
+          </button>
+          <button class="timeline-btn icon-only" title="Split">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="18" rx="1"/>
+              <rect x="14" y="3" width="7" height="18" rx="1"/>
+            </svg>
+          </button>
+          <button class="timeline-btn icon-only" title="Delete">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+          <div class="timeline-spacer"></div>
+          <button class="timeline-btn" id="resetTimelineBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            <span>Reset timeline</span>
+          </button>
+        </div>
+        <div class="timeline-track">
+          <div class="timeline-ruler" id="timelineRuler"></div>
+          <div class="timeline-clips" id="timelineClips">
+            <div class="timeline-clip" id="mainClip">
+              <div class="clip-handle left"></div>
+              <div class="clip-content"></div>
+              <div class="clip-handle right"></div>
+            </div>
+          </div>
+          <div class="timeline-playhead" id="timelinePlayhead"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Sidebar Icon Strip -->
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </button>
+      <button class="sidebar-tab" data-tab="export">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </button>
+      <button class="sidebar-tab" data-tab="zoom">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <line x1="11" y1="8" x2="11" y2="14"/>
+          <line x1="8" y1="11" x2="14" y2="11"/>
+        </svg>
+      </button>
+      <button class="sidebar-tab" data-tab="crop">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
+          <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
+        </svg>
+      </button>
+      <button class="sidebar-tab" data-tab="captions">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="4" width="20" height="16" rx="2"/>
+          <path d="M7 12h2M15 12h2M7 16h10"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Right Sidebar -->
+    <aside class="editor-sidebar">
+      <!-- Sidebar Content -->
+      <div class="sidebar-content">
+        <!-- Export Button -->
+        <button class="export-btn" id="exportBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Export video</span>
+        </button>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settingsPanel">
+          <!-- Aspect Ratio -->
+          <div class="setting-group">
+            <label class="setting-label">Aspect ratio</label>
+            <select class="setting-select" id="aspectRatio">
+              <option value="native">Native</option>
+              <option value="16:9">16:9</option>
+              <option value="9:16">9:16 (Vertical)</option>
+              <option value="1:1">1:1 (Square)</option>
+              <option value="4:3">4:3</option>
+              <option value="4:5">4:5</option>
+            </select>
+          </div>
+
+          <!-- Background -->
+          <div class="setting-group">
+            <label class="setting-label">Background</label>
+            <div class="bg-type-tabs">
+              <button class="bg-tab active" data-type="image">Image</button>
+              <button class="bg-tab" data-type="gradient">Gradient</button>
+              <button class="bg-tab" data-type="color">Color</button>
+              <button class="bg-tab" data-type="hidden">Hidden</button>
+            </div>
+
+            <!-- Background Presets -->
+            <div class="bg-presets" id="bgPresets">
+              <button class="bg-preset active" data-bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #fa709a 0%, #fee140 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)"></button>
+            </div>
+
+            <!-- Image Blur -->
+            <div class="setting-row">
+              <span class="setting-row-label">Image blur</span>
+              <select class="setting-select small" id="imageBlur">
+                <option value="none">None</option>
+                <option value="light">Light</option>
+                <option value="moderate" selected>Moderate</option>
+                <option value="heavy">Heavy</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Browser Frame -->
+          <div class="setting-group">
+            <label class="setting-label">Browser frame</label>
+            <div class="frame-tabs">
+              <button class="frame-tab active" data-frame="default">Default</button>
+              <button class="frame-tab" data-frame="minimal">Minimal</button>
+              <button class="frame-tab" data-frame="hidden">Hidden</button>
+            </div>
+
+            <div class="setting-toggles">
+              <label class="toggle-row">
+                <span>Frame shadow</span>
+                <label class="toggle">
+                  <input type="checkbox" id="frameShadow" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+              <label class="toggle-row">
+                <span>Frame border</span>
+                <label class="toggle">
+                  <input type="checkbox" id="frameBorder">
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+            </div>
+          </div>
+
+          <!-- Cursor -->
+          <div class="setting-group">
+            <label class="setting-label">Cursor</label>
+
+            <div class="setting-row">
+              <span class="setting-row-label">Size</span>
+              <select class="setting-select small" id="cursorSize">
+                <option value="small">Small</option>
+                <option value="medium" selected>Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </div>
+
+            <div class="setting-toggles">
+              <label class="toggle-row">
+                <span>Smooth movement</span>
+                <label class="toggle">
+                  <input type="checkbox" id="smoothMovement" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+              <label class="toggle-row">
+                <span>Cursor shadow</span>
+                <label class="toggle">
+                  <input type="checkbox" id="cursorShadow" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
+            </div>
+          </div>
+
+          <!-- Click Animation -->
+          <div class="setting-group">
+            <label class="setting-label">Click animation</label>
+
+            <div class="setting-row">
+              <span class="setting-row-label">Style</span>
+              <select class="setting-select small" id="clickStyle">
+                <option value="none">None</option>
+                <option value="orb" selected>Orb</option>
+                <option value="ripple">Ripple</option>
+                <option value="pulse">Pulse</option>
+              </select>
+            </div>
+
+            <div class="setting-row">
+              <span class="setting-row-label">Force</span>
+              <select class="setting-select small" id="clickForce">
+                <option value="light">Light</option>
+                <option value="moderate" selected>Moderate</option>
+                <option value="strong">Strong</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <span>Spotlight Editor v1.0</span>
+        <a href="https://github.com/muhammedanaskhan" target="_blank">Made with love</a>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Export Modal -->
+  <div class="modal-overlay hidden" id="exportModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Export video</h2>
+        <button class="modal-close" id="closeModal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-content">
+        <div class="export-option">
+          <label>Resolution</label>
+          <select class="setting-select" id="exportResolution">
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+          </select>
+        </div>
+        <div class="export-option">
+          <label>Quality</label>
+          <div class="quality-slider">
+            <input type="range" id="exportQuality" min="1" max="100" value="80">
+            <div class="quality-labels">
+              <span>Smaller file size</span>
+              <span>Higher quality</span>
+            </div>
+          </div>
+        </div>
+        <div class="export-option">
+          <label>Format</label>
+          <select class="setting-select" id="exportFormat">
+            <option value="webm">WebM</option>
+            <option value="mp4">MP4</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="export-final-btn" id="exportFinalBtn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <span>Export video</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">Exporting video...</p>
+      <div class="loading-progress">
+        <div class="loading-progress-bar" id="loadingProgressBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="editor.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "spotlight-recorder",
+  "version": "1.0.0",
+  "description": "Free screen recorder with beautiful cursor spotlight effects. A free alternative to Cursorful.",
+  "author": "Muhammad Anas Khan",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "icons": "node scripts/create-png-icons.js",
+    "build": "npm run icons"
+  },
+  "keywords": [
+    "chrome-extension",
+    "screen-recorder",
+    "cursor-spotlight",
+    "video-recording",
+    "screen-capture"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammedanaskhan/demozar"
+  }
+}
