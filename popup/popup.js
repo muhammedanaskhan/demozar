@@ -1,6 +1,5 @@
 // State
 let state = {
-  countdownEnabled: true,
   audioEnabled: true,
   format: 'webm',
   quality: 'high',
@@ -16,8 +15,6 @@ const elements = {
   recordingView: document.getElementById('recordingView'),
   settingsView: document.getElementById('settingsView'),
   exportView: document.getElementById('exportView'),
-  countdownOverlay: document.getElementById('countdownOverlay'),
-  countdownNumber: document.getElementById('countdownNumber'),
   recordBtn: document.getElementById('recordBtn'),
   pauseBtn: document.getElementById('pauseBtn'),
   stopBtn: document.getElementById('stopBtn'),
@@ -26,7 +23,6 @@ const elements = {
   newRecordingBtn: document.getElementById('newRecordingBtn'),
   recTime: document.getElementById('recTime'),
   status: document.getElementById('status'),
-  countdownEnabled: document.getElementById('countdownEnabled'),
   audioEnabled: document.getElementById('audioEnabled'),
   formatSelect: document.getElementById('formatSelect'),
   qualitySelect: document.getElementById('qualitySelect'),
@@ -92,11 +88,6 @@ function bindEvents() {
   });
 
   // Settings toggles
-  elements.countdownEnabled.addEventListener('change', (e) => {
-    state.countdownEnabled = e.target.checked;
-    saveSettings();
-  });
-
   elements.audioEnabled.addEventListener('change', (e) => {
     state.audioEnabled = e.target.checked;
     saveSettings();
@@ -133,7 +124,6 @@ function bindEvents() {
 
 // Update UI based on state
 function updateUI() {
-  elements.countdownEnabled.checked = state.countdownEnabled;
   elements.audioEnabled.checked = state.audioEnabled;
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
@@ -144,10 +134,6 @@ function updateUI() {
 async function startRecording() {
   try {
     setStatus('Preparing...');
-
-    if (state.countdownEnabled) {
-      await showCountdown();
-    }
 
     chrome.runtime.sendMessage({
       type: 'START_RECORDING',
@@ -169,26 +155,6 @@ async function startRecording() {
     console.error('Error starting recording:', error);
     showError('Failed: ' + (error?.message || 'unknown error'));
   }
-}
-
-// Show countdown
-function showCountdown() {
-  return new Promise((resolve) => {
-    elements.countdownOverlay.classList.remove('hidden');
-    let count = 3;
-    elements.countdownNumber.textContent = count;
-
-    const interval = setInterval(() => {
-      count--;
-      if (count > 0) {
-        elements.countdownNumber.textContent = count;
-      } else {
-        clearInterval(interval);
-        elements.countdownOverlay.classList.add('hidden');
-        resolve();
-      }
-    }, 1000);
-  });
 }
 
 // Toggle pause
