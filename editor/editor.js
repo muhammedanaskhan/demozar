@@ -6,8 +6,9 @@ const state = {
   currentTime: 0,
   duration: 0,
   aspectRatio: 'native',
-  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  backgroundType: 'gradient',
+  background: '../assets/abstract.webp',
+  backgroundType: 'image',
+  backgroundImage: '../assets/abstract.webp',
   imageBlur: 'moderate',
   frameStyle: 'default',
   frameShadow: true,
@@ -191,12 +192,33 @@ function bindEvents() {
     timelineTrack.style.cursor = 'pointer';
   }
 
-  // Background presets
-  document.querySelectorAll('.bg-preset').forEach(preset => {
+  // Image background presets
+  document.querySelectorAll('#bgImages .bg-preset').forEach(preset => {
     preset.addEventListener('click', () => {
-      document.querySelectorAll('.bg-preset').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('#bgImages .bg-preset').forEach(p => p.classList.remove('active'));
       preset.classList.add('active');
-      state.background = preset.dataset.bg || getComputedStyle(preset).background;
+      state.backgroundImage = preset.dataset.bgImage;
+      state.background = preset.dataset.bgImage;
+      updatePreview();
+    });
+  });
+
+  // Gradient background presets
+  document.querySelectorAll('#bgGradients .bg-preset').forEach(preset => {
+    preset.addEventListener('click', () => {
+      document.querySelectorAll('#bgGradients .bg-preset').forEach(p => p.classList.remove('active'));
+      preset.classList.add('active');
+      state.background = preset.dataset.bg;
+      updatePreview();
+    });
+  });
+
+  // Solid color background presets
+  document.querySelectorAll('#bgColors .bg-preset').forEach(preset => {
+    preset.addEventListener('click', () => {
+      document.querySelectorAll('#bgColors .bg-preset').forEach(p => p.classList.remove('active'));
+      preset.classList.add('active');
+      state.background = preset.dataset.bg;
       updatePreview();
     });
   });
@@ -207,6 +229,15 @@ function bindEvents() {
       document.querySelectorAll('.bg-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       state.backgroundType = tab.dataset.type;
+
+      // Show/hide appropriate preset panels
+      document.getElementById('bgImages').classList.toggle('hidden', tab.dataset.type !== 'image');
+      document.getElementById('bgGradients').classList.toggle('hidden', tab.dataset.type !== 'gradient');
+      document.getElementById('bgColors').classList.toggle('hidden', tab.dataset.type !== 'color');
+
+      // Show/hide blur setting (only for images)
+      document.getElementById('imageBlurRow').classList.toggle('hidden', tab.dataset.type !== 'image');
+
       updatePreview();
     });
   });
@@ -423,18 +454,40 @@ function updatePreview() {
   // Aspect ratio
   elements.previewWrapper.setAttribute('data-aspect', state.aspectRatio);
 
-  // Background
+  // Reset background styles
+  elements.previewBackground.style.background = '';
+  elements.previewBackground.style.backgroundImage = '';
+  elements.previewBackground.style.backgroundSize = '';
+  elements.previewBackground.style.backgroundPosition = '';
+
+  // Background based on type
   if (state.backgroundType === 'hidden') {
     elements.previewBackground.style.background = 'transparent';
-    elements.previewWrapper.style.background = '#f8fafc';
-  } else {
+    elements.previewWrapper.style.background = 'var(--bg-tertiary)';
+    elements.previewBackground.style.filter = 'none';
+    elements.previewBackground.style.transform = 'none';
+  } else if (state.backgroundType === 'image') {
+    elements.previewBackground.style.backgroundImage = `url('${state.backgroundImage}')`;
+    elements.previewBackground.style.backgroundSize = 'cover';
+    elements.previewBackground.style.backgroundPosition = 'center';
+    elements.previewWrapper.style.background = '';
+
+    // Apply blur for images
+    const blurValues = { none: '0px', light: '8px', moderate: '16px', heavy: '32px' };
+    const blur = blurValues[state.imageBlur];
+    elements.previewBackground.style.filter = blur === '0px' ? 'none' : `blur(${blur})`;
+    elements.previewBackground.style.transform = blur === '0px' ? 'none' : 'scale(1.1)';
+  } else if (state.backgroundType === 'gradient') {
     elements.previewBackground.style.background = state.background;
     elements.previewWrapper.style.background = '';
+    elements.previewBackground.style.filter = 'none';
+    elements.previewBackground.style.transform = 'none';
+  } else if (state.backgroundType === 'color') {
+    elements.previewBackground.style.background = state.background;
+    elements.previewWrapper.style.background = '';
+    elements.previewBackground.style.filter = 'none';
+    elements.previewBackground.style.transform = 'none';
   }
-
-  // Blur
-  const blurValues = { none: '0px', light: '10px', moderate: '20px', heavy: '40px' };
-  elements.previewBackground.style.filter = `blur(${blurValues[state.imageBlur]})`;
 
   // Frame style
   elements.browserFrame.className = 'browser-frame';

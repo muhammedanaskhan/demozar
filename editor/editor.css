@@ -651,6 +651,8 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
   transition: all var(--transition);
+  background-size: cover;
+  background-position: center;
 }
 
 .bg-preset:hover {
@@ -662,16 +664,36 @@ body {
   box-shadow: 0 0 0 2px var(--primary-bg);
 }
 
-.bg-preset:nth-child(1) { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-.bg-preset:nth-child(2) { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-.bg-preset:nth-child(3) { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-.bg-preset:nth-child(4) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-.bg-preset:nth-child(5) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-.bg-preset:nth-child(6) { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
-.bg-preset:nth-child(7) { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
-.bg-preset:nth-child(8) { background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); }
-.bg-preset:nth-child(9) { background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%); }
-.bg-preset:nth-child(10) { background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%); }
+/* Gradient presets */
+.bg-gradients .bg-preset:nth-child(1) { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.bg-gradients .bg-preset:nth-child(2) { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.bg-gradients .bg-preset:nth-child(3) { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+.bg-gradients .bg-preset:nth-child(4) { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+.bg-gradients .bg-preset:nth-child(5) { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
+.bg-gradients .bg-preset:nth-child(6) { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
+.bg-gradients .bg-preset:nth-child(7) { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
+.bg-gradients .bg-preset:nth-child(8) { background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%); }
+.bg-gradients .bg-preset:nth-child(9) { background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%); }
+.bg-gradients .bg-preset:nth-child(10) { background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%); }
+
+/* Image preset thumbnails */
+.bg-preset.bg-image {
+  background-size: cover;
+  background-position: center;
+}
+
+/* Background blur filters */
+.preview-background.blur-none { filter: none; }
+.preview-background.blur-light { filter: blur(8px); }
+.preview-background.blur-moderate { filter: blur(16px); }
+.preview-background.blur-heavy { filter: blur(32px); }
+
+/* Scale up blurred backgrounds to hide edges */
+.preview-background.blur-light,
+.preview-background.blur-moderate,
+.preview-background.blur-heavy {
+  transform: scale(1.1);
+}
 
 /* Setting Row */
 .setting-row {

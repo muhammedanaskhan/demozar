@@ -185,23 +185,46 @@
               <button class="bg-tab" data-type="hidden">Hidden</button>
             </div>
 
-            <!-- Background Presets -->
-            <div class="bg-presets" id="bgPresets">
-              <button class="bg-preset active" data-bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"></button>
+            <!-- Image Background Presets -->
+            <div class="bg-presets bg-images" id="bgImages">
+              <button class="bg-preset bg-image active" data-bg-image="../assets/abstract.webp" style="background-image: url('../assets/abstract.webp')"></button>
+              <button class="bg-preset bg-image" data-bg-image="../assets/mountains.webp" style="background-image: url('../assets/mountains.webp')"></button>
+              <button class="bg-preset bg-image" data-bg-image="../assets/sky.webp" style="background-image: url('../assets/sky.webp')"></button>
+              <button class="bg-preset bg-image" data-bg-image="../assets/inky.webp" style="background-image: url('../assets/inky.webp')"></button>
+              <button class="bg-preset bg-image" data-bg-image="../assets/water-ripple.webp" style="background-image: url('../assets/water-ripple.webp')"></button>
+            </div>
+
+            <!-- Gradient Background Presets -->
+            <div class="bg-presets bg-gradients hidden" id="bgGradients">
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #fa709a 0%, #fee140 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)"></button>
-              <button class="bg-preset" data-bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%)"></button>
+              <button class="bg-preset" data-bg="linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%)"></button>
               <button class="bg-preset" data-bg="linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)"></button>
             </div>
 
-            <!-- Image Blur -->
-            <div class="setting-row">
-              <span class="setting-row-label">Image blur</span>
+            <!-- Solid Color Presets -->
+            <div class="bg-presets bg-colors hidden" id="bgColors">
+              <button class="bg-preset" data-bg="#0a0a0b" style="background: #0a0a0b"></button>
+              <button class="bg-preset" data-bg="#1a1a2e" style="background: #1a1a2e"></button>
+              <button class="bg-preset" data-bg="#1e3a5f" style="background: #1e3a5f"></button>
+              <button class="bg-preset" data-bg="#0d4f3c" style="background: #0d4f3c"></button>
+              <button class="bg-preset" data-bg="#4a1942" style="background: #4a1942"></button>
+              <button class="bg-preset" data-bg="#ffffff" style="background: #ffffff; border: 1px solid #27272a"></button>
+              <button class="bg-preset" data-bg="#f4f4f5" style="background: #f4f4f5"></button>
+              <button class="bg-preset" data-bg="#e0f2fe" style="background: #e0f2fe"></button>
+              <button class="bg-preset" data-bg="#fef3c7" style="background: #fef3c7"></button>
+              <button class="bg-preset" data-bg="#fce7f3" style="background: #fce7f3"></button>
+            </div>
+
+            <!-- Image Blur (only shown for image backgrounds) -->
+            <div class="setting-row" id="imageBlurRow">
+              <span class="setting-row-label">Background blur</span>
               <select class="setting-select small" id="imageBlur">
                 <option value="none">None</option>
                 <option value="light">Light</option>
