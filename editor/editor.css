@@ -856,9 +856,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding-top: 4px; 
-  padding-left: 14px;
-  padding-right: 14px;
+  padding: 12px 20px;
   border: none;
   background: linear-gradient(135deg, var(--dz-brand-start) 0%, var(--dz-brand-end) 100%);
   color: var(--dz-ink);
