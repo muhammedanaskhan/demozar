@@ -110,6 +110,13 @@
             </svg>
             <span>Add Zoom</span>
           </button>
+          <!-- Auto-zoom on clicks -->
+          <button class="timeline-btn zoom-btn" id="autoZoomClicksBtn" title="Generate a zoom segment at every recorded click">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>
+            </svg>
+            <span>Auto-zoom clicks</span>
+          </button>
           <div class="toolbar-divider"></div>
           <!-- Split at playhead -->
           <button class="timeline-btn" id="splitBtn" title="Split at playhead (S)">
@@ -289,6 +296,34 @@
 
         <!-- Zoom Panel -->
         <div class="zoom-panel" id="zoomPanel">
+          <!-- Zoom motion controls — apply to every zoom segment in this recording. -->
+          <div class="zoom-control-group">
+            <span class="zoom-control-label">Zoom feel</span>
+            <div class="position-toggle">
+              <button class="position-btn" data-zoom-preset="snappy" id="zoomPresetSnappy">Snappy</button>
+              <button class="position-btn active" data-zoom-preset="smooth" id="zoomPresetSmooth">Smooth</button>
+              <button class="position-btn" data-zoom-preset="bounce" id="zoomPresetBounce">Bounce</button>
+            </div>
+          </div>
+
+          <div class="zoom-control-group">
+            <span class="zoom-control-label">Zoom in/out duration</span>
+            <div class="depth-slider-wrapper">
+              <input type="range" class="depth-slider" id="zoomRampSlider" min="0.2" max="1.5" step="0.05" value="0.55">
+              <div class="depth-labels"><span>Fast (0.2s)</span><span>Slow (1.5s)</span></div>
+              <div class="depth-value" id="zoomRampValue">0.55s</div>
+            </div>
+          </div>
+
+          <div class="zoom-control-group">
+            <span class="zoom-control-label">Cursor follow smoothness</span>
+            <div class="depth-slider-wrapper">
+              <input type="range" class="depth-slider" id="zoomSmoothSlider" min="0.03" max="0.30" step="0.01" value="0.10">
+              <div class="depth-labels"><span>Tight</span><span>Loose</span></div>
+              <div class="depth-value" id="zoomSmoothValue">0.10s</div>
+            </div>
+          </div>
+
           <div class="zoom-empty-state" id="zoomEmptyState">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <circle cx="11" cy="11" r="8"/>

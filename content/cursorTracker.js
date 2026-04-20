@@ -85,13 +85,37 @@
     messageCount = 0;
 
     document.addEventListener('mousemove', handleMouseMove, { passive: true });
+    // Capture-phase so we still see clicks on elements that stopPropagation.
+    document.addEventListener('mousedown', handleClick, { passive: true, capture: true });
     console.log('[DaddyRecorder] ✓ Cursor tracking STARTED at', new Date().toISOString());
   }
 
   function stopTracking() {
     isTracking = false;
     document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mousedown', handleClick, { capture: true });
     console.log('[DaddyRecorder] Cursor tracking STOPPED. Total messages sent:', messageCount);
+  }
+
+  // Debounce rapid-fire clicks (accidental double-trigger). 100ms is
+  // comfortably below an intentional double-click (~250ms) but kills
+  // the spurious duplicate when a UI component fires mousedown twice.
+  let lastClickSent = 0;
+  const CLICK_DEBOUNCE_MS = 100;
+
+  function handleClick(e) {
+    if (!isTracking) return;
+    if (e.button !== 0) return; // primary button only
+    const now = Date.now();
+    if (now - lastClickSent < CLICK_DEBOUNCE_MS) return;
+    lastClickSent = now;
+    const time = (now - startTime) / 1000;
+    const x = e.clientX / window.innerWidth;
+    const y = e.clientY / window.innerHeight;
+    chrome.runtime.sendMessage({
+      type: 'CLICK_POSITION',
+      data: { time, x, y }
+    }).catch(() => {});
   }
 
   // Throttle to ~30fps to avoid too much data

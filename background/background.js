@@ -10,6 +10,9 @@ let recordingState = {
 
 // Cursor tracking data - array of {time, x, y}
 let cursorData = [];
+// Click events from the recorded tab — consumed by the editor to auto-
+// generate zoom segments at each click moment.
+let clickData = [];
 
 // Timer
 let timerInterval = null;
@@ -84,6 +87,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return false;
 
+    case 'CLICK_POSITION':
+      if (recordingState.isRecording && !recordingState.isPaused) {
+        clickData.push(message.data);
+      }
+      return false;
+
     default:
       return false;
   }
@@ -129,6 +138,7 @@ function onRecordingStarted(senderTabId) {
   recordingState.recordingTime = 0;
   if (senderTabId) recordingState.recorderTabId = senderTabId;
   cursorData = [];
+  clickData = [];
   startTimer();
   setRecordingUI(true);
   injectCursorTracker();  // non-blocking; best-effort
@@ -275,6 +285,7 @@ async function storeRecording(blob, format, webcamBlob, webcamFormat) {
         format,
         timestamp: Date.now(),
         cursorData: [...cursorData],
+        clickData: [...clickData],
         webcamBlob: webcamBlob || null,
         webcamFormat: webcamFormat || null,
         cameraSettings: webcamBlob ? defaultCameraSettings() : null
@@ -282,6 +293,7 @@ async function storeRecording(blob, format, webcamBlob, webcamFormat) {
       const put = store.put(data, 'latest');
       put.onsuccess = () => {
         cursorData = [];
+        clickData = [];
         recordingState.sourceTabId = null;
         resolve();
       };

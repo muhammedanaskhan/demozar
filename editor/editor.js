@@ -21,12 +21,25 @@ const state = {
   selectedCameraHideId: null,
   // Recorded cursor data from recording session - array of {time, x, y}
   cursorData: [],
+  // Recorded click events - array of {time, x, y}. Used by Auto-zoom on
+  // clicks to generate a zoom segment at each click moment.
+  clickData: [],
   // Current cursor position for zoom (from recorded data or manual)
   cursorX: 0.5,
   cursorY: 0.5,
   // Smoothed cursor position (for smooth following)
   smoothCursorX: 0.5,
   smoothCursorY: 0.5,
+  // Cursor follow velocity — needed by SmoothDamp to maintain momentum
+  // between frames. Stored as objects because smoothDamp mutates .v.
+  smoothCursorVX: { v: 0 },
+  smoothCursorVY: { v: 0 },
+  // Zoom motion controls (apply to every zoom segment). The presets
+  // below are just quick-picks that set these values — the user can
+  // fine-tune either slider to override a preset.
+  zoomRampSec: 0.55,          // 0.2–1.5 s — how long the in/out ramp takes
+  zoomSmoothTime: 0.10,       // 0.03–0.30 s — SmoothDamp follow responsiveness
+  zoomCurve: 'easeInOutCubic',// 'easeInOutCubic' | 'easeOutBack' (bounce)
   aspectRatio: 'native',
   background: '../assets/abstract.webp',
   backgroundType: 'image',
@@ -95,6 +108,89 @@ function getZoomAtTime(time) {
   return state.zoomSegments.find(z => time >= z.start && time < z.end);
 }
 
+// Auto-generate zoom segments from recorded click events.
+//
+// Approach: each "burst" of clicks becomes ONE follow-mode zoom segment.
+// The camera zooms in at the first click of a burst and follows the
+// recorded cursor for the rest — so when the user clicks 10 times across
+// the screen in 2 seconds, the camera smoothly tracks between them
+// instead of popping to the arithmetic mean. Consecutive bursts within
+// `bridgeGap` seconds are merged into a single long zoom so the camera
+// doesn't ramp out and back in between click sequences.
+function generateZoomsFromClicks({
+  trailSec = 2.2,       // how long the zoom stays in after the last click in a burst
+  leadIn = 0.35,        // how long before the first click the zoom starts ramping in
+  burstGap = 2.5,       // clicks more than this apart start a new burst
+  bridgeGap = 1.4,      // adjacent bursts closer than this merge into one zoom
+  depth = 1.35,         // slightly gentler than manual zooms so auto feels natural
+  minDuration = 0.8,    // skip degenerate segments
+  minClicksPerBurst = 2 // Cursorful's rule — single isolated clicks don't zoom
+} = {}) {
+  const clicks = (state.clickData || []).slice().sort((a, b) => a.time - b.time);
+  if (clicks.length === 0) return 0;
+
+  // Pass 1: group clicks into bursts. Track click count so we can filter
+  // out lone clicks — those are the main driver of motion sickness in
+  // auto-zoom UX (Cursorful suppresses them explicitly).
+  const bursts = [];
+  let cur = { first: clicks[0].time, last: clicks[0].time, count: 1 };
+  for (let i = 1; i < clicks.length; i++) {
+    if (clicks[i].time - cur.last <= burstGap) {
+      cur.last = clicks[i].time;
+      cur.count++;
+    } else {
+      bursts.push(cur);
+      cur = { first: clicks[i].time, last: clicks[i].time, count: 1 };
+    }
+  }
+  bursts.push(cur);
+
+  // Drop bursts that don't meet the multi-click threshold. A single
+  // stray click isn't a "demo moment" worth zooming on.
+  const zoomableBursts = bursts.filter(b => b.count >= minClicksPerBurst);
+  if (zoomableBursts.length === 0) return 0;
+
+  // Pass 2: expand each burst into a tentative zoom window
+  // [first - leadIn, last + trailSec], then merge adjacent windows whose
+  // gap is within bridgeGap so the camera doesn't bounce.
+  const duration = state.duration || (clicks[clicks.length - 1].time + trailSec);
+  const windows = zoomableBursts.map(b => ({
+    start: Math.max(0, b.first - leadIn),
+    end:   Math.min(duration, b.last + trailSec)
+  }));
+  const merged = [];
+  for (const w of windows) {
+    if (merged.length && w.start - merged[merged.length - 1].end <= bridgeGap) {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, w.end);
+    } else {
+      merged.push({ ...w });
+    }
+  }
+
+  // Pass 3: emit zoom segments in FOLLOW mode so the camera tracks the
+  // recorded cursor across rapid clicks.
+  const segments = merged
+    .filter(w => w.end - w.start >= minDuration)
+    .map(w => ({
+      id: generateZoomId(),
+      start: w.start,
+      end: w.end,
+      position: 'follow',
+      fixedX: 0.5,
+      fixedY: 0.5,
+      depth,
+      easing: 'smooth',
+      source: 'click'
+    }));
+
+  // Replace any prior click-auto zooms; leave manual zooms alone.
+  state.zoomSegments = state.zoomSegments.filter(z => z.source !== 'click');
+  state.zoomSegments.push(...segments);
+  state.zoomSegments.sort((a, b) => a.start - b.start);
+  renderZoomSegments();
+  return segments.length;
+}
+
 // Camera hide segment helpers
 function generateCameraHideId() {
   return 'camhide_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
@@ -151,7 +247,10 @@ function renderCameraHideSegments() {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       state.selectedCameraHideId = seg.id;
+      state.selectedZoomId = null;
+      state.selectedClipId = null;
       renderCameraHideSegments();
+      updateDeleteButton();
     });
     container.appendChild(el);
   });
@@ -262,6 +361,7 @@ function renderZoomSegments() {
 function selectZoom(zoomId) {
   state.selectedZoomId = zoomId;
   state.selectedClipId = null; // Deselect any clip
+  state.selectedCameraHideId = null; // Deselect camera hide too
 
   // Update visual selection
   document.querySelectorAll('.zoom-segment').forEach(el => {
@@ -272,6 +372,7 @@ function selectZoom(zoomId) {
   });
 
   updateZoomControls();
+  updateDeleteButton();
   switchToZoomPanel();
 }
 
@@ -578,6 +679,27 @@ async function loadVideo() {
           console.log('[Editor] No cursor data available for this recording');
         }
 
+        // Click events (for Auto-zoom on clicks)
+        if (Array.isArray(data.clickData)) {
+          state.clickData = data.clickData;
+          console.log('[Editor] Loaded', state.clickData.length, 'click events');
+        }
+
+        // Restore zoom motion config (legacy preset values migrate to
+        // the new sliders).
+        if (typeof data.zoomRampSec === 'number') state.zoomRampSec = data.zoomRampSec;
+        if (typeof data.zoomSmoothTime === 'number') state.zoomSmoothTime = data.zoomSmoothTime;
+        if (data.zoomCurve) state.zoomCurve = data.zoomCurve;
+        if (data.zoomPreset && ZOOM_PRESETS[data.zoomPreset] &&
+            typeof data.zoomRampSec !== 'number') {
+          // Old recording with just a preset name — expand to explicit values.
+          const p = ZOOM_PRESETS[data.zoomPreset];
+          state.zoomRampSec = p.rampSec;
+          state.zoomSmoothTime = p.smoothTime;
+          state.zoomCurve = p.curve;
+        }
+        reflectZoomMotionUI();
+
         // Load webcam bubble if the recording captured one. We always
         // composite at export time — the live overlay (via Document
         // Picture-in-Picture) is in its own browser window that tab /
@@ -794,8 +916,26 @@ function selectClip(clipId) {
 function updateDeleteButton() {
   const activeClips = state.clips.filter(c => !c.deleted);
   const deleteBtn = document.getElementById('deleteClipBtn');
-  // Can only delete if there's more than one clip and one is selected
-  deleteBtn.disabled = activeClips.length <= 1 || !state.selectedClipId;
+  // Enabled if anything deletable is selected — a zoom segment, a
+  // camera-hide segment, or (for clips) a non-last clip.
+  const canDeleteClip = activeClips.length > 1 && !!state.selectedClipId;
+  const canDeleteZoom = !!state.selectedZoomId;
+  const canDeleteCamHide = !!state.selectedCameraHideId;
+  deleteBtn.disabled = !(canDeleteClip || canDeleteZoom || canDeleteCamHide);
+}
+
+// Top-bar Delete dispatches to whatever is currently selected. Zoom and
+// camera-hide segments take priority over clips — picking them is a more
+// explicit intent than the default clip that's always selected.
+function handleTopBarDelete() {
+  if (state.selectedZoomId) {
+    deleteSelectedZoom();
+  } else if (state.selectedCameraHideId) {
+    deleteSelectedCameraHide();
+  } else {
+    deleteSelectedClip();
+  }
+  updateDeleteButton();
 }
 
 // Update speed control to show selected clip's speed
@@ -1005,6 +1145,54 @@ function getCornerRadiusPct(settings) {
     case 'square':  return 0;
     case 'rounded': return 18;
     default:        return 50; // circle
+  }
+}
+
+// Push current state values into the sliders + numeric readouts + the
+// preset button highlight. Called on load and after a preset click.
+function reflectZoomMotionUI() {
+  const rampSlider = document.getElementById('zoomRampSlider');
+  const smoothSlider = document.getElementById('zoomSmoothSlider');
+  if (rampSlider) rampSlider.value = String(state.zoomRampSec);
+  if (smoothSlider) smoothSlider.value = String(state.zoomSmoothTime);
+  const rv = document.getElementById('zoomRampValue');
+  const sv = document.getElementById('zoomSmoothValue');
+  if (rv) rv.textContent = state.zoomRampSec.toFixed(2) + 's';
+  if (sv) sv.textContent = state.zoomSmoothTime.toFixed(2) + 's';
+  highlightMatchingPreset();
+}
+
+// Light up a preset button if the current values exactly match it,
+// otherwise clear them (user tuned a custom value).
+function highlightMatchingPreset() {
+  document.querySelectorAll('[data-zoom-preset]').forEach(btn => {
+    const preset = ZOOM_PRESETS[btn.dataset.zoomPreset];
+    const match = preset
+      && Math.abs(preset.rampSec - state.zoomRampSec) < 0.005
+      && Math.abs(preset.smoothTime - state.zoomSmoothTime) < 0.005
+      && preset.curve === state.zoomCurve;
+    btn.classList.toggle('active', !!match);
+  });
+}
+
+// Persist zoom motion config on the current 'latest' recording — lives
+// alongside other edit state so the choice survives reloading the editor.
+async function saveZoomMotion() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(['recordings'], 'readwrite');
+    const store = tx.objectStore('recordings');
+    const getReq = store.get('latest');
+    getReq.onsuccess = () => {
+      const data = getReq.result;
+      if (!data) return;
+      data.zoomRampSec = state.zoomRampSec;
+      data.zoomSmoothTime = state.zoomSmoothTime;
+      data.zoomCurve = state.zoomCurve;
+      store.put(data, 'latest');
+    };
+  } catch (e) {
+    console.warn('[Editor] Could not persist zoom motion:', e);
   }
 }
 
@@ -1446,7 +1634,7 @@ function bindEvents() {
   elements.splitBtn.addEventListener('click', splitAtPlayhead);
   elements.trimStartBtn.addEventListener('click', trimToStart);
   elements.trimEndBtn.addEventListener('click', trimToEnd);
-  elements.deleteClipBtn.addEventListener('click', deleteSelectedClip);
+  elements.deleteClipBtn.addEventListener('click', handleTopBarDelete);
   elements.resetTimelineBtn.addEventListener('click', resetTimeline);
 
   // Zoom controls
@@ -1457,6 +1645,48 @@ function bindEvents() {
       switchToZoomPanel();
     }
   });
+
+  const autoZoomBtn = document.getElementById('autoZoomClicksBtn');
+  if (autoZoomBtn) {
+    autoZoomBtn.addEventListener('click', () => {
+      const n = generateZoomsFromClicks();
+      if (n === 0) {
+        alert('No recorded clicks found in this recording.');
+      }
+    });
+  }
+
+  // Zoom feel preset buttons — shortcuts that set both sliders at once.
+  document.querySelectorAll('[data-zoom-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = ZOOM_PRESETS[btn.dataset.zoomPreset];
+      if (!preset) return;
+      state.zoomRampSec = preset.rampSec;
+      state.zoomSmoothTime = preset.smoothTime;
+      state.zoomCurve = preset.curve;
+      reflectZoomMotionUI();
+      saveZoomMotion();
+    });
+  });
+
+  const rampSlider = document.getElementById('zoomRampSlider');
+  if (rampSlider) {
+    rampSlider.addEventListener('input', (e) => {
+      state.zoomRampSec = parseFloat(e.target.value);
+      document.getElementById('zoomRampValue').textContent = state.zoomRampSec.toFixed(2) + 's';
+      highlightMatchingPreset();
+      saveZoomMotion();
+    });
+  }
+  const smoothSlider = document.getElementById('zoomSmoothSlider');
+  if (smoothSlider) {
+    smoothSlider.addEventListener('input', (e) => {
+      state.zoomSmoothTime = parseFloat(e.target.value);
+      document.getElementById('zoomSmoothValue').textContent = state.zoomSmoothTime.toFixed(2) + 's';
+      highlightMatchingPreset();
+      saveZoomMotion();
+    });
+  }
 
   elements.positionFollow.addEventListener('click', () => {
     const zoom = getZoomById(state.selectedZoomId);
@@ -1641,7 +1871,7 @@ function bindEvents() {
       splitAtPlayhead();
     } else if (e.code === 'Delete' || e.code === 'Backspace') {
       e.preventDefault();
-      deleteSelectedClip();
+      handleTopBarDelete();
     }
   });
 
@@ -1997,24 +2227,131 @@ function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+// Back-out (overshoot past 1 then settle) — gives the "Bounce" preset
+// its slight kick when zooming in.
+function easeOutBack(t, overshoot = 1.70158) {
+  const c1 = overshoot;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+// Zoom feel presets. Borrows OBS-Smooth-Zoom's tuples (see research
+// notes): Snappy / Smooth / Bounce. `smoothTime` maps to Unity's
+// SmoothDamp "approximately how long to reach target" parameter — lower
+// = snappier cursor follow, higher = looser / more cinematic.
+const ZOOM_PRESETS = {
+  snappy: { rampSec: 0.30, smoothTime: 0.05, curve: 'easeInOutCubic' },
+  smooth: { rampSec: 0.55, smoothTime: 0.10, curve: 'easeInOutCubic' },
+  bounce: { rampSec: 0.60, smoothTime: 0.12, curve: 'easeOutBack'    },
+};
+
+// Returns the live motion config — either the user's custom tuned values
+// or the defaults from whichever preset they last clicked.
+function getZoomPreset() {
+  return {
+    rampSec: state.zoomRampSec,
+    smoothTime: state.zoomSmoothTime,
+    curve: state.zoomCurve,
+  };
+}
+
+function applyEase(t, curveName) {
+  if (curveName === 'easeOutBack') {
+    // Only overshoot on the way IN. The way OUT uses the symmetric cubic
+    // so we don't fling the camera on the way out too.
+    return easeOutBack(t);
+  }
+  return easeInOutCubic(t);
+}
+
+// Fixed-duration ramp into / out of a zoom segment. Returns a 0..1
+// rampProgress representing how "zoomed-in" we should be. Decoupling ramp
+// time from segment length fixes the old behavior where short zooms
+// popped abruptly and long zooms ramped forever.
+function computeZoomRamp(time, zoom) {
+  const { rampSec, curve } = getZoomPreset();
+  const segLen = zoom.end - zoom.start;
+  // Cap each ramp at a third of the segment so short zooms still get
+  // symmetric in/out.
+  const ramp = Math.min(rampSec, segLen / 3);
+  const elapsed = time - zoom.start;
+  const remaining = zoom.end - time;
+  let t = 1;
+  let isRampingOut = false;
+  if (elapsed < ramp) {
+    t = elapsed / ramp;
+  } else if (remaining < ramp) {
+    t = remaining / ramp;
+    isRampingOut = true;
+  }
+  t = Math.max(0, Math.min(1, t));
+  // "Bounce" preset: overshoot only on ramp-in (otherwise we'd fling the
+  // camera at the end of the zoom, which looks cheap).
+  return applyEase(t, isRampingOut ? 'easeInOutCubic' : curve);
+}
+
+// Unity-style SmoothDamp — critically damped spring via exponential
+// decay approximation. velocityRef is an object { v: number } we mutate
+// in place so we can track velocity across rAF frames per axis.
+//
+// Gives us a spring that settles without overshoot, in roughly
+// `smoothTime` seconds. This is what Screen Studio and every serious
+// auto-zoom tool uses for cursor follow — the old linear lerp produced
+// velocity discontinuities that read as "jittery" to the eye.
+function smoothDamp(current, target, velocityRef, smoothTime, deltaTime, maxSpeed = Infinity) {
+  smoothTime = Math.max(0.0001, smoothTime);
+  const omega = 2 / smoothTime;
+  const x = omega * deltaTime;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  let change = current - target;
+  const originalTo = target;
+
+  // Clamp change to maxSpeed * smoothTime
+  const maxChange = maxSpeed * smoothTime;
+  change = Math.max(-maxChange, Math.min(maxChange, change));
+  const adjustedTarget = current - change;
+
+  let temp = (velocityRef.v + omega * change) * deltaTime;
+  velocityRef.v = (velocityRef.v - omega * temp) * exp;
+
+  let output = adjustedTarget + (change + temp) * exp;
+
+  // If we overshot the original target (e.g. target moving away from us),
+  // snap to it to avoid oscillation.
+  if ((originalTo - current > 0) === (output > originalTo)) {
+    output = originalTo;
+    velocityRef.v = (output - originalTo) / deltaTime;
+  }
+  return output;
+}
+
 // Animation loop for smooth zoom following
 let zoomAnimationId = null;
+
+let lastAnimateTs = 0;
 
 function startZoomAnimation() {
   if (zoomAnimationId) return;
 
-  function animate() {
+  function animate(now) {
     const currentTime = elements.videoPlayer?.currentTime || 0;
 
-    // Get cursor position from recorded data at current video time
+    // Time elapsed since the last rAF tick — feeds SmoothDamp.
+    let dt = lastAnimateTs ? (now - lastAnimateTs) / 1000 : 1 / 60;
+    if (dt > 0.1) dt = 0.1;  // cap to avoid a huge step after a tab resume
+    lastAnimateTs = now;
+
+    // Target cursor position from recorded data at current video time
     const cursorPos = getCursorAtTime(currentTime);
     state.cursorX = cursorPos.x;
     state.cursorY = cursorPos.y;
 
-    // Smooth interpolation for fluid camera movement
-    const smoothingFactor = 0.15;
-    state.smoothCursorX += (state.cursorX - state.smoothCursorX) * smoothingFactor;
-    state.smoothCursorY += (state.cursorY - state.smoothCursorY) * smoothingFactor;
+    // Critically-damped spring (Unity SmoothDamp) — produces the same
+    // "cinema operator following a subject" feel as Screen Studio /
+    // Screenize, and settles without overshoot.
+    const { smoothTime } = getZoomPreset();
+    state.smoothCursorX = smoothDamp(state.smoothCursorX, state.cursorX, state.smoothCursorVX, smoothTime, dt);
+    state.smoothCursorY = smoothDamp(state.smoothCursorY, state.cursorY, state.smoothCursorVY, smoothTime, dt);
 
     // Apply zoom if there's an active zoom segment
     const zoom = getZoomAtTime(currentTime);
@@ -2023,15 +2360,17 @@ function startZoomAnimation() {
       applyZoomEffectSmooth(zoom);
       elements.previewFrame.classList.add('zoom-active');
     } else {
-      // Reset transform when no zoom
+      // Reset transform + blur when no zoom
       elements.videoPlayer.style.transform = 'none';
       elements.videoPlayer.style.transformOrigin = '0 0';
+      elements.videoPlayer.style.filter = '';
       elements.previewFrame.classList.remove('zoom-active');
     }
 
     zoomAnimationId = requestAnimationFrame(animate);
   }
 
+  lastAnimateTs = 0;
   zoomAnimationId = requestAnimationFrame(animate);
 }
 
@@ -2042,23 +2381,24 @@ function stopZoomAnimation() {
   }
 }
 
+// Motion-blur amount (in px) for a given ramp value. Peaks in the middle
+// of the ramp and vanishes at rest (ramp = 0 or 1). Screen Studio ships
+// motion blur on zoom by default — it's half of why their zooms feel
+// cinematic instead of lurching.
+const ZOOM_BLUR_PEAK_PX = 2.5;
+function zoomMotionBlurPx(ramp) {
+  // Parabola: 0 at endpoints, peak at 0.5. Multiplied to hit PEAK at 0.5.
+  const t = Math.max(0, Math.min(1, ramp));
+  return (t * (1 - t)) * 4 * ZOOM_BLUR_PEAK_PX;
+}
+
 // Smooth version of applyZoomEffect for animation loop
 function applyZoomEffectSmooth(zoom) {
   const currentTime = elements.videoPlayer.currentTime;
-  const zoomDuration = zoom.end - zoom.start;
-  const progress = Math.max(0, Math.min(1, (currentTime - zoom.start) / zoomDuration));
-
-  // Ease in and out
-  const easeDuration = 0.15;
-  let scale = zoom.depth;
-
-  if (progress < easeDuration) {
-    const easeProgress = progress / easeDuration;
-    scale = 1 + (zoom.depth - 1) * easeInOutCubic(easeProgress);
-  } else if (progress > (1 - easeDuration)) {
-    const easeProgress = (1 - progress) / easeDuration;
-    scale = 1 + (zoom.depth - 1) * easeInOutCubic(easeProgress);
-  }
+  // Fixed-time ramp (see computeZoomRamp) so both 1.5 s and 10 s zooms
+  // feel equally cinematic instead of popping or dragging.
+  const ramp = computeZoomRamp(currentTime, zoom);
+  const scale = 1 + (zoom.depth - 1) * ramp;
 
   let cursorX, cursorY;
 
@@ -2104,6 +2444,10 @@ function applyZoomEffectSmooth(zoom) {
   // Apply transform: scale from top-left, then translate
   elements.videoPlayer.style.transformOrigin = '0 0';
   elements.videoPlayer.style.transform = `translate(${translateX.toFixed(2)}%, ${translateY.toFixed(2)}%) scale(${scale.toFixed(3)})`;
+
+  // Motion blur during the in/out ramp — vanishes at steady zoom.
+  const blurPx = zoomMotionBlurPx(ramp);
+  elements.videoPlayer.style.filter = blurPx > 0.05 ? `blur(${blurPx.toFixed(2)}px)` : '';
 }
 
 // Get the clip at a specific video time
@@ -2478,6 +2822,15 @@ async function exportVideo() {
     const totalEditedDuration = getEditedDuration();
     let processedDuration = 0;
 
+    // SmoothDamp cursor state for the export — mirrors the preview so
+    // the exported video's zoom follow motion matches what the user saw.
+    // Step size is 1/30s since the export loop runs at 30 fps.
+    const exportSmoothCursor = {
+      x: 0.5, y: 0.5,
+      vx: { v: 0 }, vy: { v: 0 },
+      initialized: false,
+    };
+
     // Helper to draw a frame with zoom effect
     function drawFrame() {
       // Clear canvas
@@ -2588,32 +2941,41 @@ async function exportVideo() {
       let zoomScale = 1;
       let zoomOriginX = 0.5;
       let zoomOriginY = 0.5;
+      let zoomRamp = 0; // 0 = no zoom, 1 = fully zoomed
 
       if (activeZoom) {
-        const zoomDuration = activeZoom.end - activeZoom.start;
-        const progress = (currentVideoTime - activeZoom.start) / zoomDuration;
-
-        // Ease in and out
-        const easeDuration = 0.15;
-        if (progress < easeDuration) {
-          const easeProgress = progress / easeDuration;
-          zoomScale = 1 + (activeZoom.depth - 1) * easeInOutCubic(easeProgress);
-        } else if (progress > (1 - easeDuration)) {
-          const easeProgress = (1 - progress) / easeDuration;
-          zoomScale = 1 + (activeZoom.depth - 1) * easeInOutCubic(easeProgress);
-        } else {
-          zoomScale = activeZoom.depth;
-        }
+        // Same fixed-time ramp as the preview — keeps export in sync.
+        const ramp = computeZoomRamp(currentVideoTime, activeZoom);
+        zoomRamp = ramp;
+        zoomScale = 1 + (activeZoom.depth - 1) * ramp;
 
         if (activeZoom.position === 'fixed') {
           zoomOriginX = activeZoom.fixedX;
           zoomOriginY = activeZoom.fixedY;
         } else {
-          // Follow mode: use recorded cursor position at current video time
-          const cursorPos = getCursorAtTime(currentVideoTime);
-          zoomOriginX = cursorPos.x;
-          zoomOriginY = cursorPos.y;
+          // Follow mode: SmoothDamp with the same smoothTime as the
+          // preview so the exported motion matches what the user saw.
+          const target = getCursorAtTime(currentVideoTime);
+          const { smoothTime } = getZoomPreset();
+          const dt = 1 / 30;
+          if (exportSmoothCursor.initialized) {
+            exportSmoothCursor.x = smoothDamp(exportSmoothCursor.x, target.x, exportSmoothCursor.vx, smoothTime, dt);
+            exportSmoothCursor.y = smoothDamp(exportSmoothCursor.y, target.y, exportSmoothCursor.vy, smoothTime, dt);
+          } else {
+            exportSmoothCursor.x = target.x;
+            exportSmoothCursor.y = target.y;
+            exportSmoothCursor.vx.v = 0;
+            exportSmoothCursor.vy.v = 0;
+            exportSmoothCursor.initialized = true;
+          }
+          zoomOriginX = exportSmoothCursor.x;
+          zoomOriginY = exportSmoothCursor.y;
         }
+      } else {
+        // Reset smoothing between zoom segments so a new zoom starts
+        // from the cursor's actual position, not the leftover smoothed
+        // value from the previous segment.
+        exportSmoothCursor.initialized = false;
       }
 
       // Draw video frame with crop, zoom, and rounded corners
@@ -2621,6 +2983,12 @@ async function exportVideo() {
       ctx.beginPath();
       ctx.roundRect(videoX, videoY, videoWidth, videoHeight, 12);
       ctx.clip();
+
+      // Motion blur during the zoom in/out ramps (matches preview).
+      const exportBlurPx = zoomMotionBlurPx(zoomRamp);
+      if (exportBlurPx > 0.05) {
+        ctx.filter = `blur(${exportBlurPx.toFixed(2)}px)`;
+      }
 
       if (zoomScale !== 1) {
         // Apply zoom: calculate zoomed source rectangle
