@@ -885,6 +885,7 @@ function bindEvents() {
 
   // Video events
   elements.videoPlayer.addEventListener('timeupdate', () => {
+    handleClipBoundaries(); // Skip deleted sections during playback
     updateProgress();
     updatePlaybackRate();
     applyZoomEffect();
@@ -1184,6 +1185,7 @@ let playheadAnimationId = null;
 // Smooth playhead animation loop
 function animatePlayhead() {
   if (state.isPlaying) {
+    handleClipBoundaries(); // Check and skip deleted sections
     updateProgress();
     applyZoomEffect();
     playheadAnimationId = requestAnimationFrame(animatePlayhead);
@@ -1199,6 +1201,26 @@ function togglePlay() {
       playheadAnimationId = null;
     }
   } else {
+    // Before playing, ensure we're in an active clip
+    const activeClips = state.clips.filter(c => !c.deleted);
+    if (activeClips.length === 0) return; // No clips to play
+
+    const currentTime = elements.videoPlayer.currentTime;
+    const inActiveClip = activeClips.some(clip =>
+      currentTime >= clip.start && currentTime < clip.end
+    );
+
+    if (!inActiveClip) {
+      // Find the appropriate clip to start from
+      const nextClip = activeClips.find(clip => clip.start > currentTime);
+      if (nextClip) {
+        elements.videoPlayer.currentTime = nextClip.start;
+      } else {
+        // Start from first clip
+        elements.videoPlayer.currentTime = activeClips[0].start;
+      }
+    }
+
     elements.videoPlayer.play();
     playheadAnimationId = requestAnimationFrame(animatePlayhead);
   }
@@ -1220,15 +1242,19 @@ function updatePlayButton() {
   }
 }
 
-// Update progress bar
+// Update progress bar - uses edited time (accounts for deleted clips)
 function updateProgress() {
-  const currentTime = elements.videoPlayer.currentTime || 0;
-  const duration = isFinite(state.duration) && state.duration > 0 ? state.duration : 1;
-  const percent = Math.min(100, Math.max(0, (currentTime / duration) * 100));
+  const videoTime = elements.videoPlayer.currentTime || 0;
+  const editedDuration = getEditedDuration();
+  const duration = isFinite(editedDuration) && editedDuration > 0 ? editedDuration : 1;
+
+  // Convert video time to edited timeline position
+  const editedTime = videoTimeToEditedTime(videoTime);
+  const percent = Math.min(100, Math.max(0, (editedTime / duration) * 100));
 
   elements.progressFilled.style.width = `${percent}%`;
   elements.progressHandle.style.left = `${percent}%`;
-  elements.currentTime.textContent = formatTime(currentTime);
+  elements.currentTime.textContent = formatTime(editedTime);
 
   // Update timeline playhead - but NOT while dragging (let mouse control it for instant feedback)
   if (!isDragging) {
@@ -1244,17 +1270,22 @@ function updateProgress() {
   }
 }
 
-// Seek video
+// Seek video from progress bar - uses edited time
 function seekVideo(e) {
-  if (!elements.videoPlayer.duration || isNaN(elements.videoPlayer.duration)) {
+  const editedDuration = getEditedDuration();
+  if (!isFinite(editedDuration) || editedDuration <= 0) {
     return;
   }
   const rect = elements.progressBar.getBoundingClientRect();
   let percent = (e.clientX - rect.left) / rect.width;
   percent = Math.max(0, Math.min(1, percent)); // Clamp between 0 and 1
-  const newTime = percent * elements.videoPlayer.duration;
-  if (!isNaN(newTime)) {
-    elements.videoPlayer.currentTime = newTime;
+
+  // Convert edited timeline position to actual video time
+  const editedTime = percent * editedDuration;
+  const videoTime = editedTimeToVideoTime(editedTime);
+
+  if (!isNaN(videoTime) && isFinite(videoTime)) {
+    elements.videoPlayer.currentTime = videoTime;
     updateProgress();
     updatePlaybackRate();
   }
@@ -1285,10 +1316,11 @@ function startDrag(e) {
   document.addEventListener('mouseup', stopDrag);
 }
 
-// Timeline seeking
+// Timeline seeking - uses edited time (accounts for deleted clips)
 function seekFromTimeline(e) {
   const clipsWrapper = document.querySelector('.timeline-clips-wrapper');
-  if (!clipsWrapper || !isFinite(state.duration) || state.duration <= 0) {
+  const editedDuration = getEditedDuration();
+  if (!clipsWrapper || !isFinite(editedDuration) || editedDuration <= 0) {
     return;
   }
 
@@ -1299,19 +1331,23 @@ function seekFromTimeline(e) {
   let percent = clickX / effectiveWidth;
   percent = Math.max(0, Math.min(1, percent));
 
-  const newTime = percent * state.duration;
-  if (!isNaN(newTime) && isFinite(newTime)) {
-    elements.videoPlayer.currentTime = newTime;
+  // Convert edited timeline position to actual video time
+  const editedTime = percent * editedDuration;
+  const videoTime = editedTimeToVideoTime(editedTime);
+
+  if (!isNaN(videoTime) && isFinite(videoTime)) {
+    elements.videoPlayer.currentTime = videoTime;
     updateProgress();
     updatePlaybackRate();
     applyZoomEffect();
   }
 }
 
-// Timeline seeking from zoom track
+// Timeline seeking from zoom track - uses edited time
 function seekFromZoomTrack(e) {
   const zoomWrapper = document.querySelector('.timeline-zoom-wrapper');
-  if (!zoomWrapper || !isFinite(state.duration) || state.duration <= 0) {
+  const editedDuration = getEditedDuration();
+  if (!zoomWrapper || !isFinite(editedDuration) || editedDuration <= 0) {
     return;
   }
 
@@ -1322,9 +1358,12 @@ function seekFromZoomTrack(e) {
   let percent = clickX / effectiveWidth;
   percent = Math.max(0, Math.min(1, percent));
 
-  const newTime = percent * state.duration;
-  if (!isNaN(newTime) && isFinite(newTime)) {
-    elements.videoPlayer.currentTime = newTime;
+  // Convert edited timeline position to actual video time
+  const editedTime = percent * editedDuration;
+  const videoTime = editedTimeToVideoTime(editedTime);
+
+  if (!isNaN(videoTime) && isFinite(videoTime)) {
+    elements.videoPlayer.currentTime = videoTime;
     updateProgress();
     updatePlaybackRate();
     applyZoomEffect();
@@ -1609,6 +1648,129 @@ function getClipAtTime(videoTime) {
   }
   // Return first non-deleted clip if not found
   return state.clips.find(c => !c.deleted);
+}
+
+// Convert edited timeline position to raw video time
+// editedTime is the position on the timeline (0 to getEditedDuration())
+// Returns the actual video time to seek to
+function editedTimeToVideoTime(editedTime) {
+  const activeClips = state.clips.filter(c => !c.deleted);
+  let accumulatedEditedTime = 0;
+
+  for (const clip of activeClips) {
+    const clipEditedDuration = (clip.end - clip.start) / clip.speed;
+
+    if (accumulatedEditedTime + clipEditedDuration > editedTime) {
+      // The target time is within this clip
+      const timeIntoClip = (editedTime - accumulatedEditedTime) * clip.speed;
+      return clip.start + timeIntoClip;
+    }
+
+    accumulatedEditedTime += clipEditedDuration;
+  }
+
+  // If we're past all clips, return end of last clip
+  const lastClip = activeClips[activeClips.length - 1];
+  return lastClip ? lastClip.end : 0;
+}
+
+// Convert raw video time to edited timeline position
+// videoTime is the actual video playback time
+// Returns the position on the edited timeline
+function videoTimeToEditedTime(videoTime) {
+  const activeClips = state.clips.filter(c => !c.deleted);
+  let editedTime = 0;
+
+  for (const clip of activeClips) {
+    if (videoTime < clip.start) {
+      // Video time is before this clip - return current edited time
+      return editedTime;
+    }
+
+    if (videoTime >= clip.start && videoTime < clip.end) {
+      // Video time is within this clip
+      const timeIntoClip = videoTime - clip.start;
+      return editedTime + (timeIntoClip / clip.speed);
+    }
+
+    // Video time is past this clip, add its full edited duration
+    editedTime += (clip.end - clip.start) / clip.speed;
+  }
+
+  // If past all clips, return total edited duration
+  return editedTime;
+}
+
+// Check if video time is within any active clip
+function isTimeInActiveClip(videoTime) {
+  const activeClips = state.clips.filter(c => !c.deleted);
+  return activeClips.some(clip => videoTime >= clip.start && videoTime < clip.end);
+}
+
+// Get the next active clip after a given video time
+function getNextActiveClip(videoTime) {
+  const activeClips = state.clips.filter(c => !c.deleted);
+  return activeClips.find(clip => clip.start > videoTime);
+}
+
+// Handle clip boundaries during playback - skip deleted sections
+function handleClipBoundaries() {
+  if (!state.isPlaying) return;
+
+  const currentVideoTime = elements.videoPlayer.currentTime;
+  const activeClips = state.clips.filter(c => !c.deleted);
+
+  if (activeClips.length === 0) {
+    // No active clips, stop playback
+    elements.videoPlayer.pause();
+    state.isPlaying = false;
+    updatePlayButton();
+    return;
+  }
+
+  // Check if current time is within an active clip
+  const currentClip = activeClips.find(clip =>
+    currentVideoTime >= clip.start && currentVideoTime < clip.end
+  );
+
+  if (currentClip) {
+    // We're in an active clip - check if we've reached its end
+    if (currentVideoTime >= currentClip.end - 0.05) {
+      // Find next active clip
+      const currentIndex = activeClips.indexOf(currentClip);
+      const nextClip = activeClips[currentIndex + 1];
+
+      if (nextClip) {
+        // Jump to next clip
+        elements.videoPlayer.currentTime = nextClip.start;
+      } else {
+        // No more clips, stop at end
+        elements.videoPlayer.pause();
+        state.isPlaying = false;
+        updatePlayButton();
+        elements.videoPlayer.currentTime = currentClip.end;
+      }
+    }
+  } else {
+    // We're NOT in an active clip - find where to jump
+    const nextClip = activeClips.find(clip => clip.start > currentVideoTime);
+
+    if (nextClip) {
+      // Jump to next clip
+      elements.videoPlayer.currentTime = nextClip.start;
+    } else {
+      // Check if we're before the first clip
+      const firstClip = activeClips[0];
+      if (currentVideoTime < firstClip.start) {
+        elements.videoPlayer.currentTime = firstClip.start;
+      } else {
+        // We're past all clips, stop
+        elements.videoPlayer.pause();
+        state.isPlaying = false;
+        updatePlayButton();
+      }
+    }
+  }
 }
 
 // Update preview
