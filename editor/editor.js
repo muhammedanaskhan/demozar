@@ -2251,8 +2251,10 @@ function updatePreview() {
 
   // Background based on type
   if (state.backgroundType === 'hidden') {
+    // No colored wrapper — the recorded surface sits on the editor's own
+    // page background. Matches what exports produce (transparent canvas).
     elements.previewBackground.style.background = 'transparent';
-    elements.previewWrapper.style.background = 'var(--bg-tertiary)';
+    elements.previewWrapper.style.background = 'transparent';
     elements.previewBackground.style.filter = 'none';
     elements.previewBackground.style.transform = 'none';
   } else if (state.backgroundType === 'image') {
@@ -2342,13 +2344,7 @@ async function exportVideo() {
       '720p': { width: 1280, height: 720 },
       '480p': { width: 854, height: 480 }
     };
-    const { width, height } = resolutions[resolution];
-
-    // Create canvas for rendering
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
+    const target = resolutions[resolution];
 
     // Create offscreen video for reading frames
     const video = document.createElement('video');
@@ -2367,35 +2363,69 @@ async function exportVideo() {
     const srcHeight = video.videoHeight * (1 - cropTop - cropBottom);
     const effectiveAspect = video.videoWidth / srcHeight;
 
-    // Calculate video dimensions to fit in frame
-    const canvasAspect = width / height;
-    let videoWidth, videoHeight, videoX, videoY;
-    const padding = 60; // Padding for background visibility
+    // Hidden background implies a truly bare export — strip the browser
+    // frame header too so the file is just the video pixels.
+    const hiddenExport = state.backgroundType === 'hidden';
+    const frameHeight = (hiddenExport || state.frameStyle === 'hidden')
+      ? 0
+      : (state.frameStyle === 'minimal' ? 28 : 40);
 
-    if (effectiveAspect > canvasAspect) {
-      videoWidth = width - padding * 2;
-      videoHeight = videoWidth / effectiveAspect;
-    } else {
-      videoHeight = height - padding * 2;
-      videoWidth = videoHeight * effectiveAspect;
-    }
+    // Canvas size + video placement depend on whether we're showing a
+    // background or cropping tight to the video.
+    let width, height, videoWidth, videoHeight, videoX, videoY;
 
-    videoX = (width - videoWidth) / 2;
-    videoY = (height - videoHeight) / 2;
-
-    // Account for frame header if not hidden
-    const frameHeight = state.frameStyle === 'hidden' ? 0 : (state.frameStyle === 'minimal' ? 28 : 40);
-    if (frameHeight > 0) {
-      // Shift video down to make room for frame
-      const totalHeight = videoHeight + frameHeight;
-      if (totalHeight > height - padding * 2) {
-        const scale = (height - padding * 2) / totalHeight;
-        videoHeight *= scale;
-        videoWidth *= scale;
+    if (state.backgroundType === 'hidden') {
+      // Tight crop: canvas = video region (+ frame header if present).
+      // No padding; videoX = 0, videoY = frameHeight.
+      if (effectiveAspect >= 1) {
+        videoWidth = Math.min(target.width, video.videoWidth);
+        videoHeight = videoWidth / effectiveAspect;
+      } else {
+        videoHeight = Math.min(target.height, srcHeight);
+        videoWidth = videoHeight * effectiveAspect;
       }
+      // Round to even numbers — some encoders require it
+      videoWidth = Math.round(videoWidth / 2) * 2;
+      videoHeight = Math.round(videoHeight / 2) * 2;
+      width = videoWidth;
+      height = videoHeight + frameHeight;
+      videoX = 0;
+      videoY = frameHeight;
+    } else {
+      // Backgrounded export: pad around the video so the background shows.
+      width = target.width;
+      height = target.height;
+      const canvasAspect = width / height;
+      const padding = 60;
+
+      if (effectiveAspect > canvasAspect) {
+        videoWidth = width - padding * 2;
+        videoHeight = videoWidth / effectiveAspect;
+      } else {
+        videoHeight = height - padding * 2;
+        videoWidth = videoHeight * effectiveAspect;
+      }
+
       videoX = (width - videoWidth) / 2;
-      videoY = (height - videoHeight - frameHeight) / 2 + frameHeight;
+      videoY = (height - videoHeight) / 2;
+
+      if (frameHeight > 0) {
+        const totalHeight = videoHeight + frameHeight;
+        if (totalHeight > height - padding * 2) {
+          const scale = (height - padding * 2) / totalHeight;
+          videoHeight *= scale;
+          videoWidth *= scale;
+        }
+        videoX = (width - videoWidth) / 2;
+        videoY = (height - videoHeight - frameHeight) / 2 + frameHeight;
+      }
     }
+
+    // Create canvas now that final dimensions are known
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
 
     // Set up MediaRecorder for canvas
     const stream = canvas.captureStream(30);
@@ -2452,8 +2482,9 @@ async function exportVideo() {
 
       // Draw background
       if (state.backgroundType === 'hidden') {
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(0, 0, width, height);
+        // Leave canvas transparent. webm output doesn't carry alpha, so
+        // the exported file will render as black around the video — that's
+        // the intended "no background" look.
       } else if (state.backgroundType === 'color') {
         ctx.fillStyle = state.background;
         ctx.fillRect(0, 0, width, height);
@@ -2475,7 +2506,10 @@ async function exportVideo() {
       }
 
       // Draw shadow behind frame if enabled
-      if (state.frameShadow) {
+      // Frame shadow is drawn behind the video/frame box. Tight-crop ("hidden"
+      // background) leaves no room for a shadow and the dark fill behind the
+      // video would bleed into the edges, so skip it in that mode.
+      if (state.frameShadow && !hiddenExport) {
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
         ctx.shadowBlur = 40;
@@ -2492,7 +2526,7 @@ async function exportVideo() {
       }
 
       // Draw browser frame if not hidden
-      if (state.frameStyle !== 'hidden') {
+      if (state.frameStyle !== 'hidden' && !hiddenExport) {
         const frameY = videoY - frameHeight;
         const radius = 12;
 
@@ -2620,8 +2654,9 @@ async function exportVideo() {
       // but BEFORE the border so the bubble doesn't clip the corner stroke.
       drawWebcamBubble(videoX, videoY, videoWidth, videoHeight);
 
-      // Draw border if enabled
-      if (state.frameBorder) {
+      // Draw border if enabled (but not in tight-crop mode — border would
+      // hug the canvas edges and get clipped).
+      if (state.frameBorder && !hiddenExport) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
         ctx.lineWidth = 2;
         const frameY = videoY - frameHeight;
@@ -2631,15 +2666,16 @@ async function exportVideo() {
       }
     }
 
-    // Composite the webcam bubble into the export canvas. Mirrors the
-    // preview bubble's anchor/size/opacity/shape/mirror config, including
-    // non-square aspect ratios (portrait / landscape presets).
+    // Composite the webcam bubble into the export canvas.
     function drawWebcamBubble(vx, vy, vw, vh) {
       const s = state.cameraSettings;
       if (!s || !s.enabled) return;
       if (isCameraHiddenAt(video.currentTime || 0)) return;
       const cam = elements.webcamPlayer;
-      if (!cam || cam.readyState < 2) return;
+      // HAVE_METADATA (1) + video w/h tells us a frame is paintable. Without
+      // this softer check, any mid-seek dip of readyState caused the bubble
+      // to blink out for a frame.
+      if (!cam || !cam.videoWidth || !cam.videoHeight) return;
 
       // Bubble is a square whose visual shape is driven by corner radius.
       const bubbleW = Math.round((s.sizePct / 100) * vw);
@@ -2715,6 +2751,16 @@ async function exportVideo() {
     // Process each clip sequentially
     recorder.start();
 
+    // Webcam player — the editor's preview element. During export we drive
+    // it alongside the screen video so the bubble isn't stuck on a frozen
+    // frame in the output.
+    const webcam = elements.webcamPlayer;
+    const hasWebcam = !!(webcam && webcam.src && state.cameraSettings?.enabled);
+    if (hasWebcam) {
+      webcam.muted = true;
+      webcam.pause();
+    }
+
     for (let clipIndex = 0; clipIndex < activeClips.length; clipIndex++) {
       const clip = activeClips[clipIndex];
       const clipDuration = (clip.end - clip.start) / clip.speed;
@@ -2728,6 +2774,20 @@ async function exportVideo() {
       // Play this clip at its speed
       video.playbackRate = clip.speed;
 
+      // Seek webcam to the same position + play at the same speed
+      if (hasWebcam) {
+        webcam.playbackRate = clip.speed;
+        try {
+          webcam.currentTime = Math.min(clip.start, (webcam.duration || clip.start));
+          await new Promise((resolve) => {
+            const done = () => { webcam.onseeked = null; resolve(); };
+            webcam.onseeked = done;
+            setTimeout(done, 500); // safety: don't block if seeked never fires
+          });
+        } catch (_) {}
+        webcam.play().catch(() => {});
+      }
+
       // Process this clip's frames
       await new Promise((resolveClip) => {
         let lastFrameTime = performance.now();
@@ -2737,6 +2797,7 @@ async function exportVideo() {
           // Check if we've reached the end of this clip
           if (video.currentTime >= clip.end || video.ended) {
             video.pause();
+            if (hasWebcam) webcam.pause();
             processedDuration += clipDuration;
             resolveClip();
             return;
@@ -2747,6 +2808,13 @@ async function exportVideo() {
 
           if (elapsed >= targetFrameInterval) {
             lastFrameTime = now - (elapsed % targetFrameInterval);
+
+            // No mid-clip drift correction — each currentTime= assignment
+            // triggers a seek, which briefly drops readyState and made the
+            // bubble blink. Webcam + screen both run at clip.speed, so
+            // they stay aligned for the life of the clip. We re-sync
+            // between clips at each clip's start seek below.
+
             drawFrame();
 
             // Update progress
