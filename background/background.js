@@ -66,6 +66,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       runCountdownOnSource().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
       return true; // async response
 
+    case 'UPDATE_SOURCE_TAB':
+      updateSourceTabFromActive().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+      return true;
+
     case 'RECORDING_DATA':
       handleRecordingData(message.screen, message.webcam);
       return false;
@@ -141,6 +145,22 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
 });
 
+// Re-identify the source tab from whichever tab is currently active in
+// the last-focused window. Called after getDisplayMedia resolves for
+// tab-surface captures — Chrome auto-focuses the picked tab, so the
+// active tab at that moment IS the tab being recorded.
+async function updateSourceTabFromActive() {
+  try {
+    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (active?.id && active.id !== recordingState.recorderTabId) {
+      recordingState.sourceTabId = active.id;
+      console.log('[Background] sourceTabId updated to picked tab:', active.id, active.url);
+    }
+  } catch (e) {
+    console.warn('[Background] Could not update source tab:', e);
+  }
+}
+
 // ========== Cursor tracking ==========
 
 async function injectCursorTracker() {
@@ -173,6 +193,12 @@ async function stopCursorTracker() {
     await chrome.tabs.sendMessage(tabId, { type: 'STOP_CURSOR_TRACKING' });
   } catch (_) {}
 }
+
+// Live webcam overlay is now handled in the recorder tab itself via the
+// Document Picture-in-Picture API (see recorder.js::openLiveOverlayPip).
+// A PiP window is a separate browser window that tab/window captures
+// don't include, so we can show the user a live webcam bubble without
+// burning it into the recording.
 
 // Ask the recorded tab to show a 3-2-1 overlay. Also focuses the tab so
 // the user is looking at it during the countdown. Resolves after the

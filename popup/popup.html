@@ -96,6 +96,28 @@
 
       <!-- Bottom action area -->
       <div class="action-area">
+        <!-- Capture sources: mic + camera are opt-in extras on top of the
+             always-on screen recording. Surfaced on the main screen so
+             Chrome's permission prompt can fire on first click. -->
+        <div class="capture-sources">
+          <button class="capture-toggle" id="micToggle" type="button" aria-pressed="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <span>Microphone</span>
+          </button>
+          <button class="capture-toggle" id="cameraToggle" type="button" aria-pressed="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 7l-7 5 7 5V7z"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+            <span>Camera</span>
+          </button>
+        </div>
+
         <p class="record-hint">You'll choose a tab, window, or screen next.</p>
 
         <!-- Record Button -->
@@ -167,28 +189,6 @@
             </div>
             <label class="toggle">
               <input type="checkbox" id="audioEnabled" checked>
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <span class="setting-name">Microphone</span>
-              <span class="setting-desc">Add your voice to the recording</span>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="micEnabled">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <span class="setting-name">Camera</span>
-              <span class="setting-desc">Show your webcam as a bubble overlay</span>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="cameraEnabled">
               <span class="toggle-slider"></span>
             </label>
           </div>

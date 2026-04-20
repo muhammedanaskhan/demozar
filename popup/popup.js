@@ -26,8 +26,8 @@ const elements = {
   recTime: document.getElementById('recTime'),
   status: document.getElementById('status'),
   audioEnabled: document.getElementById('audioEnabled'),
-  micEnabled: document.getElementById('micEnabled'),
-  cameraEnabled: document.getElementById('cameraEnabled'),
+  micToggle: document.getElementById('micToggle'),
+  cameraToggle: document.getElementById('cameraToggle'),
   formatSelect: document.getElementById('formatSelect'),
   qualitySelect: document.getElementById('qualitySelect'),
   watermarkEnabled: document.getElementById('watermarkEnabled')
@@ -97,13 +97,15 @@ function bindEvents() {
     saveSettings();
   });
 
-  elements.micEnabled.addEventListener('change', (e) => {
-    state.micEnabled = e.target.checked;
+  elements.micToggle.addEventListener('click', () => {
+    state.micEnabled = !state.micEnabled;
+    elements.micToggle.setAttribute('aria-pressed', String(state.micEnabled));
     saveSettings();
   });
 
-  elements.cameraEnabled.addEventListener('change', (e) => {
-    state.cameraEnabled = e.target.checked;
+  elements.cameraToggle.addEventListener('click', () => {
+    state.cameraEnabled = !state.cameraEnabled;
+    elements.cameraToggle.setAttribute('aria-pressed', String(state.cameraEnabled));
     saveSettings();
   });
 
@@ -139,8 +141,8 @@ function bindEvents() {
 // Update UI based on state
 function updateUI() {
   elements.audioEnabled.checked = state.audioEnabled;
-  elements.micEnabled.checked = state.micEnabled;
-  elements.cameraEnabled.checked = state.cameraEnabled;
+  elements.micToggle.setAttribute('aria-pressed', String(state.micEnabled));
+  elements.cameraToggle.setAttribute('aria-pressed', String(state.cameraEnabled));
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
   elements.watermarkEnabled.checked = state.watermarkEnabled;

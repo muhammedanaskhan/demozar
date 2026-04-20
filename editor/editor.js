@@ -578,7 +578,10 @@ async function loadVideo() {
           console.log('[Editor] No cursor data available for this recording');
         }
 
-        // Load webcam bubble if the recording captured one
+        // Load webcam bubble if the recording captured one. We always
+        // composite at export time — the live overlay (via Document
+        // Picture-in-Picture) is in its own browser window that tab /
+        // window captures don't include, so there's no double-up.
         if (data.webcamBlob) {
           state.webcamBlob = data.webcamBlob;
           state.webcamUrl = URL.createObjectURL(data.webcamBlob);

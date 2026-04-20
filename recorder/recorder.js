@@ -305,16 +305,34 @@ async function startRecording() {
     return;
   }
 
+  const track = screenStream.getVideoTracks()[0];
+  const surface = track?.getSettings?.().displaySurface;
+
+  // For tab surface captures, Chrome has focused the picked tab by now.
+  // Tell the service worker to re-identify the source tab from whichever
+  // tab is active — more accurate than the tab the user was on when they
+  // opened the popup (which may have been chrome://newtab or another
+  // uninjectable page).
+  if (surface === 'browser') {
+    try {
+      await chrome.runtime.sendMessage({ type: 'UPDATE_SOURCE_TAB' });
+    } catch (_) { /* non-fatal */ }
+  }
+
   // Tab-surface captures can show a 3-2-1 overlay on the recorded tab
   // (via content script). For window/screen captures we can't overlay
   // native surfaces from a Chrome extension, so we skip the countdown.
-  const track = screenStream.getVideoTracks()[0];
-  const surface = track?.getSettings?.().displaySurface;
   if (surface === 'browser') {
     try {
       await chrome.runtime.sendMessage({ type: 'RUN_COUNTDOWN_ON_SOURCE' });
     } catch (_) { /* non-fatal */ }
   }
+
+  // No live on-screen webcam overlay: can't be done cleanly from a
+  // Chrome extension without either baking it into the recording
+  // (tab-iframe approach) or needing OS-level APIs (what Loom's native
+  // app uses). The bubble is still composited into the final video at
+  // export time from the separate webcam blob.
 
   const videoTracks = screenStream.getVideoTracks();
   if (!videoTracks.length) {
