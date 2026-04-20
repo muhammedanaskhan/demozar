@@ -65,9 +65,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return false;
 
-    case 'RUN_COUNTDOWN_ON_SOURCE':
-      runCountdownOnSource().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
-      return true; // async response
+    case 'FOCUS_RECORDER_TAB':
+      if (recordingState.recorderTabId != null) {
+        chrome.tabs.update(recordingState.recorderTabId, { active: true }).catch(() => {});
+      }
+      return false;
 
     case 'UPDATE_SOURCE_TAB':
       updateSourceTabFromActive().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
@@ -209,20 +211,6 @@ async function stopCursorTracker() {
 // A PiP window is a separate browser window that tab/window captures
 // don't include, so we can show the user a live webcam bubble without
 // burning it into the recording.
-
-// Ask the recorded tab to show a 3-2-1 overlay. Also focuses the tab so
-// the user is looking at it during the countdown. Resolves after the
-// overlay has completed.
-async function runCountdownOnSource() {
-  const tabId = recordingState.sourceTabId;
-  if (!tabId) return;
-  try {
-    await chrome.tabs.update(tabId, { active: true });
-    await chrome.tabs.sendMessage(tabId, { type: 'SHOW_COUNTDOWN', from: 3 });
-  } catch (e) {
-    console.warn('[Background] Countdown on source failed:', e);
-  }
-}
 
 // ========== Data handling ==========
 

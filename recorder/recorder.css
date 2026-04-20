@@ -227,3 +227,41 @@ html, body {
 }
 
 .hidden { display: none !important; }
+
+/* Fullscreen 3-2-1 countdown overlay shown after the source picker
+   closes and before MediaRecorder.start() fires. */
+.countdown-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 11, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  z-index: 1000;
+  animation: countdownFadeIn 120ms ease;
+}
+@keyframes countdownFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.countdown-label {
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.countdown-number {
+  font-size: min(40vmin, 320px);
+  font-weight: 700;
+  color: var(--primary);
+  text-shadow: 0 0 80px rgba(23, 254, 160, 0.55);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  animation: countdownPulse 1s ease infinite;
+}
+@keyframes countdownPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}

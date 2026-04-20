@@ -28,52 +28,9 @@
     } else if (message.type === 'STOP_CURSOR_TRACKING') {
       stopTracking();
       sendResponse({ success: true, status: 'tracking_stopped', messagesSent: messageCount });
-    } else if (message.type === 'SHOW_COUNTDOWN') {
-      showCountdown(typeof message.from === 'number' ? message.from : 3).then(() => {
-        sendResponse({ success: true });
-      }).catch(() => sendResponse({ success: false }));
-      return true; // async
     }
     return false;
   });
-
-  // Full-page countdown overlay injected into the recorded tab. Drawn on
-  // top of page content via a fixed-position div at a very high z-index.
-  // Resolves when the countdown reaches zero and the overlay has been removed.
-  function showCountdown(from) {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.id = '__daddy-countdown';
-      overlay.style.cssText = [
-        'position:fixed', 'inset:0', 'z-index:2147483647',
-        'display:flex', 'align-items:center', 'justify-content:center',
-        'background:rgba(10,10,11,0.55)',
-        'font:700 min(36vmin,360px)/1 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif',
-        'color:#17FEA0', 'text-shadow:0 0 60px rgba(23,254,160,0.6)',
-        'pointer-events:none',
-        'font-variant-numeric:tabular-nums'
-      ].join(';');
-      document.documentElement.appendChild(overlay);
-
-      let n = from;
-      overlay.textContent = String(n);
-      const tick = () => {
-        n -= 1;
-        if (n <= 0) {
-          overlay.style.transition = 'opacity 120ms ease';
-          overlay.style.opacity = '0';
-          setTimeout(() => {
-            try { overlay.remove(); } catch (_) {}
-            resolve();
-          }, 150);
-          return;
-        }
-        overlay.textContent = String(n);
-        setTimeout(tick, 1000);
-      };
-      setTimeout(tick, 1000);
-    });
-  }
 
   function startTracking() {
     if (isTracking) {

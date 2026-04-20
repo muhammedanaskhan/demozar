@@ -47,6 +47,34 @@ const el = {
 
 let isPaused = false;
 
+// Full-screen 3-2-1 overlay inside the recorder tab. Visible to the user
+// while MediaRecorder is still inactive — gives them a beat to get ready
+// regardless of whether they're recording a tab, a window, or the whole
+// screen. Resolves when the countdown hits zero.
+function runRecorderCountdown(from = 3) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('countdownOverlay');
+    const num = document.getElementById('countdownNumber');
+    if (!overlay || !num) { resolve(); return; }
+
+    let n = from;
+    num.textContent = String(n);
+    overlay.classList.remove('hidden');
+
+    const tick = () => {
+      n -= 1;
+      if (n <= 0) {
+        overlay.classList.add('hidden');
+        resolve();
+        return;
+      }
+      num.textContent = String(n);
+      setTimeout(tick, 1000);
+    };
+    setTimeout(tick, 1000);
+  });
+}
+
 // Selected deviceIds (null = default)
 let selectedMicId = null;
 let selectedCameraId = null;
@@ -319,14 +347,11 @@ async function startRecording() {
     } catch (_) { /* non-fatal */ }
   }
 
-  // Tab-surface captures can show a 3-2-1 overlay on the recorded tab
-  // (via content script). For window/screen captures we can't overlay
-  // native surfaces from a Chrome extension, so we skip the countdown.
-  if (surface === 'browser') {
-    try {
-      await chrome.runtime.sendMessage({ type: 'RUN_COUNTDOWN_ON_SOURCE' });
-    } catch (_) { /* non-fatal */ }
-  }
+  // 3-2-1 countdown in this recorder tab. Make sure the user is looking
+  // at this tab during the count (the picker may have moved focus), then
+  // hand focus back to the source tab once MediaRecorder is rolling.
+  try { await chrome.runtime.sendMessage({ type: 'FOCUS_RECORDER_TAB' }); } catch (_) {}
+  await runRecorderCountdown(3);
 
   // No live on-screen webcam overlay: can't be done cleanly from a
   // Chrome extension without either baking it into the recording

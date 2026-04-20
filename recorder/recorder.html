@@ -116,6 +116,13 @@
         Keep this tab open while recording. Click the Demozar icon or come back here to stop.
       </p>
     </main>
+
+    <!-- 3-2-1 countdown after the user picks their source, before
+         MediaRecorder actually starts. Shown fullscreen in this tab. -->
+    <div class="countdown-overlay hidden" id="countdownOverlay">
+      <div class="countdown-label">Recording starts in</div>
+      <div class="countdown-number" id="countdownNumber">3</div>
+    </div>
   </div>
   <script src="recorder.js"></script>
 </body>
