@@ -615,9 +615,9 @@ body {
 }
 
 .timeline-clip.selected {
-  background: linear-gradient(180deg, rgba(1, 253, 72, 0.15) 0%, rgba(1, 253, 72, 0.08) 100%);
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px rgba(1, 253, 72, 0.3), inset 0 1px 0 rgba(1, 253, 72, 0.1);
+  background: linear-gradient(180deg, rgba(1, 253, 72, 0.08) 0%, rgba(1, 253, 72, 0.04) 100%);
+  border-color: rgba(1, 253, 72, 0.5);
+  box-shadow: none;
 }
 
 .timeline-clip.selected::before {
@@ -625,8 +625,8 @@ body {
     -55deg,
     transparent,
     transparent 5px,
-    rgba(1, 253, 72, 0.05) 5px,
-    rgba(1, 253, 72, 0.05) 10px
+    rgba(1, 253, 72, 0.03) 5px,
+    rgba(1, 253, 72, 0.03) 10px
   );
 }
 
@@ -782,8 +782,38 @@ body {
   width: 2px;
   background: var(--primary);
   z-index: 10;
-  pointer-events: none;
-  box-shadow: 0 0 8px rgba(1, 253, 72, 0.5);
+  pointer-events: auto;
+  cursor: grab;
+  box-shadow: none;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+/* Wide invisible hit area for easier grabbing */
+.timeline-playhead::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px; /* 20px wide hit area */
+  cursor: grab;
+}
+
+/* Hover glow effect - subtle */
+.timeline-playhead:hover {
+  box-shadow: 0 0 6px rgba(1, 253, 72, 0.3);
+}
+
+.timeline-playhead:hover::before {
+  filter: drop-shadow(0 0 2px rgba(1, 253, 72, 0.4));
+}
+
+/* Grabbing state - slightly more visible */
+.timeline-playhead:active,
+.timeline-playhead.dragging {
+  cursor: grabbing;
+  box-shadow: 0 0 8px rgba(1, 253, 72, 0.4);
 }
 
 .timeline-playhead::before {
@@ -797,6 +827,7 @@ body {
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
   border-top: 8px solid var(--primary);
+  transition: filter 0.15s ease;
 }
 
 /* Sidebar Tabs - Icon strip */
@@ -872,7 +903,7 @@ body {
 .export-btn:hover {
   filter: brightness(1.05);
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(1, 253, 72, 0.4);
+  box-shadow: 0 6px 16px rgba(1, 253, 72, 0.2);
 }
 
 /* Settings */
@@ -1361,8 +1392,8 @@ body {
 .zoom-segment {
   position: absolute;
   height: 100%;
-  background: linear-gradient(180deg, rgba(23, 254, 160, 0.25) 0%, rgba(1, 253, 72, 0.15) 100%);
-  border: 1px solid var(--primary);
+  background: rgba(1, 253, 72, 0.1);
+  border: 1px solid rgba(1, 253, 72, 0.4);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1373,13 +1404,15 @@ body {
 }
 
 .zoom-segment:hover {
-  background: linear-gradient(180deg, rgba(23, 254, 160, 0.35) 0%, rgba(1, 253, 72, 0.25) 100%);
+  background: rgba(1, 253, 72, 0.15);
+  border-color: rgba(1, 253, 72, 0.5);
 }
 
 .zoom-segment.selected {
-  background: linear-gradient(180deg, rgba(23, 254, 160, 0.4) 0%, rgba(1, 253, 72, 0.3) 100%);
+  background: rgba(1, 253, 72, 0.18);
+  border-color: rgba(1, 253, 72, 0.6);
   border-width: 2px;
-  box-shadow: 0 0 0 2px rgba(1, 253, 72, 0.2), 0 0 12px rgba(1, 253, 72, 0.3);
+  box-shadow: none;
 }
 
 .zoom-segment-content {
@@ -1427,14 +1460,14 @@ body {
 
 /* Add Zoom button special style */
 .timeline-btn.zoom-btn {
-  background: linear-gradient(135deg, rgba(23, 254, 160, 0.15) 0%, rgba(1, 253, 72, 0.1) 100%);
-  border-color: rgba(1, 253, 72, 0.3);
+  background: rgba(1, 253, 72, 0.08);
+  border-color: rgba(1, 253, 72, 0.25);
   color: var(--primary);
 }
 
 .timeline-btn.zoom-btn:hover {
-  background: linear-gradient(135deg, rgba(23, 254, 160, 0.25) 0%, rgba(1, 253, 72, 0.2) 100%);
-  border-color: var(--primary);
+  background: rgba(1, 253, 72, 0.12);
+  border-color: rgba(1, 253, 72, 0.4);
 }
 
 /* Toolbar Divider */

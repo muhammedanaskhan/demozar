@@ -909,6 +909,11 @@ function bindEvents() {
     clipsWrapper.addEventListener('mousedown', startTimelineDrag);
   }
 
+  // Playhead itself - make it directly draggable
+  if (elements.timelinePlayhead) {
+    elements.timelinePlayhead.addEventListener('mousedown', startPlayheadDrag);
+  }
+
   // Zoom track wrapper - make it clickable for seeking
   const zoomWrapper = document.querySelector('.timeline-zoom-wrapper');
   if (zoomWrapper) {
@@ -1225,15 +1230,17 @@ function updateProgress() {
   elements.progressHandle.style.left = `${percent}%`;
   elements.currentTime.textContent = formatTime(currentTime);
 
-  // Update timeline playhead - positioned within timeline track
-  const clipsWrapper = document.querySelector('.timeline-clips-wrapper');
-  const trackLabel = document.querySelector('.timeline-track-row .track-label');
-  if (clipsWrapper && elements.timelinePlayhead) {
-    const trackLabelWidth = trackLabel ? trackLabel.offsetWidth : 0;
-    const wrapperPadding = 16; // padding inside clips wrapper
-    const wrapperWidth = clipsWrapper.offsetWidth - (wrapperPadding * 2);
-    const playheadLeft = trackLabelWidth + wrapperPadding + (percent / 100) * wrapperWidth;
-    elements.timelinePlayhead.style.left = `${playheadLeft}px`;
+  // Update timeline playhead - but NOT while dragging (let mouse control it for instant feedback)
+  if (!isDragging) {
+    const clipsWrapper = document.querySelector('.timeline-clips-wrapper');
+    const trackLabel = document.querySelector('.timeline-track-row .track-label');
+    if (clipsWrapper && elements.timelinePlayhead) {
+      const trackLabelWidth = trackLabel ? trackLabel.offsetWidth : 0;
+      const wrapperPadding = 16; // padding inside clips wrapper
+      const wrapperWidth = clipsWrapper.offsetWidth - (wrapperPadding * 2);
+      const playheadLeft = trackLabelWidth + wrapperPadding + (percent / 100) * wrapperWidth;
+      elements.timelinePlayhead.style.left = `${playheadLeft}px`;
+    }
   }
 }
 
@@ -1325,11 +1332,14 @@ function seekFromZoomTrack(e) {
 }
 
 function startTimelineDrag(e) {
-  // Don't start drag if clicking on a clip
-  if (e.target.closest('.timeline-clip')) return;
+  // Don't start drag if clicking on a clip or playhead
+  if (e.target.closest('.timeline-clip') || e.target.closest('.timeline-playhead')) return;
 
   e.preventDefault();
   isDragging = true;
+
+  // Add dragging class to playhead for visual feedback
+  elements.timelinePlayhead.classList.add('dragging');
 
   // Immediately update playhead position visually
   updatePlayheadFromMouse(e);
@@ -1347,6 +1357,37 @@ function startTimelineDrag(e) {
 
   const stopDrag = () => {
     isDragging = false;
+    elements.timelinePlayhead.classList.remove('dragging');
+    document.removeEventListener('mousemove', handleDrag);
+    document.removeEventListener('mouseup', stopDrag);
+  };
+
+  document.addEventListener('mousemove', handleDrag);
+  document.addEventListener('mouseup', stopDrag);
+}
+
+// Start dragging from the playhead itself
+function startPlayheadDrag(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  isDragging = true;
+
+  // Add dragging class for visual feedback
+  elements.timelinePlayhead.classList.add('dragging');
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    if (isDragging) {
+      // Update playhead visually first (instant feedback)
+      updatePlayheadFromMouse(e);
+      // Then seek video
+      seekFromTimeline(e);
+    }
+  };
+
+  const stopDrag = () => {
+    isDragging = false;
+    elements.timelinePlayhead.classList.remove('dragging');
     document.removeEventListener('mousemove', handleDrag);
     document.removeEventListener('mouseup', stopDrag);
   };
@@ -1358,6 +1399,9 @@ function startTimelineDrag(e) {
 function startZoomTrackDrag(e) {
   e.preventDefault();
   isDragging = true;
+
+  // Add dragging class to playhead for visual feedback
+  elements.timelinePlayhead.classList.add('dragging');
 
   updatePlayheadFromMouseZoomTrack(e);
   seekFromZoomTrack(e);
@@ -1372,6 +1416,7 @@ function startZoomTrackDrag(e) {
 
   const stopDrag = () => {
     isDragging = false;
+    elements.timelinePlayhead.classList.remove('dragging');
     document.removeEventListener('mousemove', handleDrag);
     document.removeEventListener('mouseup', stopDrag);
   };
