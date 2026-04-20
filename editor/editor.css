@@ -1799,6 +1799,60 @@ body {
   aspect-ratio: 16 / 9;
 }
 
+/* Free-placement focus-point picker: a mini preview of the current
+   video frame with a draggable green marker the user can place
+   anywhere to set where the zoom is centered. */
+.focus-canvas-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0a0a0b;
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+  border: 1px solid var(--border);
+}
+
+.focus-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.focus-rect {
+  position: absolute;
+  border: 1.5px solid rgba(1, 253, 72, 0.65);
+  background: rgba(1, 253, 72, 0.08);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.32);
+  transition: none;
+}
+
+.focus-marker {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid #0a0a0b;
+  box-shadow: 0 0 0 2px rgba(1, 253, 72, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.zoom-control-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .position-cell {
   border: none;
   background: var(--bg-secondary);

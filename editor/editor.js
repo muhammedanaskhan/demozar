@@ -396,16 +396,71 @@ function updateZoomControls() {
   // Show/hide fixed position picker
   elements.fixedPositionPicker.classList.toggle('active', zoom.position === 'fixed');
 
-  // Update position grid selection
-  document.querySelectorAll('.position-cell').forEach(cell => {
-    const x = parseFloat(cell.dataset.x);
-    const y = parseFloat(cell.dataset.y);
-    cell.classList.toggle('active', x === zoom.fixedX && y === zoom.fixedY);
-  });
+  // Snapshot the current frame into the picker + position the marker.
+  if (zoom.position === 'fixed') {
+    renderFocusPickerFrame();
+    updateFocusPickerMarker(zoom);
+  }
 
   // Update depth slider
   elements.zoomDepth.value = zoom.depth;
   elements.depthValue.textContent = `${zoom.depth}x`;
+}
+
+// Draw the current video frame into the focus picker so the user sees
+// what they're pointing at while placing the marker.
+function renderFocusPickerFrame() {
+  const canvas = document.getElementById('focusCanvas');
+  const video = elements.videoPlayer;
+  if (!canvas || !video || !video.videoWidth) return;
+  const wrapper = canvas.parentElement;
+  const w = Math.max(1, wrapper.clientWidth);
+  const h = Math.max(1, wrapper.clientHeight);
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  // Cover-fit the video frame into the picker
+  const videoAspect = video.videoWidth / video.videoHeight;
+  const pickerAspect = w / h;
+  let dx, dy, dw, dh;
+  if (videoAspect > pickerAspect) {
+    dh = h;
+    dw = h * videoAspect;
+    dx = (w - dw) / 2;
+    dy = 0;
+  } else {
+    dw = w;
+    dh = w / videoAspect;
+    dx = 0;
+    dy = (h - dh) / 2;
+  }
+  try { ctx.drawImage(video, dx, dy, dw, dh); } catch (_) {}
+}
+
+function updateFocusPickerMarker(zoom) {
+  const wrapper = document.getElementById('focusCanvasWrapper');
+  const marker = document.getElementById('focusMarker');
+  const rect = document.getElementById('focusRect');
+  if (!wrapper || !marker || !rect) return;
+  const w = wrapper.clientWidth;
+  const h = wrapper.clientHeight;
+  const cx = zoom.fixedX * w;
+  const cy = zoom.fixedY * h;
+  marker.style.left = cx + 'px';
+  marker.style.top = cy + 'px';
+  // Zoom visible-area rectangle — width/height shrink with depth.
+  const rw = w / (zoom.depth || 1);
+  const rh = h / (zoom.depth || 1);
+  let rx = cx - rw / 2;
+  let ry = cy - rh / 2;
+  // Keep rectangle inside picker (same clamping the export/preview do)
+  rx = Math.max(0, Math.min(w - rw, rx));
+  ry = Math.max(0, Math.min(h - rh, ry));
+  rect.style.left = rx + 'px';
+  rect.style.top = ry + 'px';
+  rect.style.width = rw + 'px';
+  rect.style.height = rh + 'px';
 }
 
 // Switch sidebar to zoom panel
@@ -1706,17 +1761,36 @@ function bindEvents() {
     }
   });
 
-  // Fixed position grid
-  document.querySelectorAll('.position-cell').forEach(cell => {
-    cell.addEventListener('click', () => {
+  // Free-placement focus-point picker — click or drag anywhere inside
+  // the mini preview to set exactly where the zoom is centered.
+  const picker = document.getElementById('focusCanvasWrapper');
+  if (picker) {
+    const commitFromEvent = (ev) => {
       const zoom = getZoomById(state.selectedZoomId);
-      if (zoom) {
-        zoom.fixedX = parseFloat(cell.dataset.x);
-        zoom.fixedY = parseFloat(cell.dataset.y);
-        updateZoomControls();
-      }
+      if (!zoom) return;
+      const rect = picker.getBoundingClientRect();
+      let x = (ev.clientX - rect.left) / rect.width;
+      let y = (ev.clientY - rect.top) / rect.height;
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+      zoom.fixedX = x;
+      zoom.fixedY = y;
+      updateFocusPickerMarker(zoom);
+    };
+    picker.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      picker.setPointerCapture(e.pointerId);
+      commitFromEvent(e);
+      const onMove = (ev) => commitFromEvent(ev);
+      const onUp = () => {
+        picker.releasePointerCapture(e.pointerId);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
     });
-  });
+  }
 
   // Depth slider
   elements.zoomDepth.addEventListener('input', (e) => {
@@ -1725,6 +1799,16 @@ function bindEvents() {
       zoom.depth = parseFloat(e.target.value);
       elements.depthValue.textContent = `${zoom.depth}x`;
       renderZoomSegments();
+      if (zoom.position === 'fixed') updateFocusPickerMarker(zoom);
+    }
+  });
+
+  // Keep focus picker in sync when the viewport resizes
+  window.addEventListener('resize', () => {
+    const zoom = getZoomById(state.selectedZoomId);
+    if (zoom && zoom.position === 'fixed') {
+      renderFocusPickerFrame();
+      updateFocusPickerMarker(zoom);
     }
   });
 

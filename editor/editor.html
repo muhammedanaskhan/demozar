@@ -353,18 +353,15 @@
                 </button>
               </div>
               <div class="fixed-position-picker" id="fixedPositionPicker">
-                <span class="zoom-control-label" style="margin-top: 12px;">Focus Point</span>
-                <div class="position-grid">
-                  <button class="position-cell" data-x="0" data-y="0"></button>
-                  <button class="position-cell" data-x="0.5" data-y="0"></button>
-                  <button class="position-cell" data-x="1" data-y="0"></button>
-                  <button class="position-cell" data-x="0" data-y="0.5"></button>
-                  <button class="position-cell active" data-x="0.5" data-y="0.5"></button>
-                  <button class="position-cell" data-x="1" data-y="0.5"></button>
-                  <button class="position-cell" data-x="0" data-y="1"></button>
-                  <button class="position-cell" data-x="0.5" data-y="1"></button>
-                  <button class="position-cell" data-x="1" data-y="1"></button>
+                <span class="zoom-control-label" style="margin-top: 12px;">Focus point</span>
+                <div class="focus-canvas-wrapper" id="focusCanvasWrapper">
+                  <canvas class="focus-canvas" id="focusCanvas"></canvas>
+                  <!-- Green outline shows the area that will be visible at the current zoom depth. -->
+                  <div class="focus-rect" id="focusRect"></div>
+                  <!-- Draggable center point. -->
+                  <div class="focus-marker" id="focusMarker"></div>
                 </div>
+                <p class="zoom-control-hint">Drag the marker to place the focus anywhere.</p>
               </div>
             </div>
             <div class="zoom-control-group">
