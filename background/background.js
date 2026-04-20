@@ -1,60 +1,48 @@
-// Recording state
+// ========== State ==========
 let recordingState = {
   isRecording: false,
   isPaused: false,
   recordingTime: 0,
   settings: null,
-  recordingTabId: null
+  recorderTabId: null,       // pinned recorder tab
+  sourceTabId: null          // the tab that was active when the user launched
 };
 
 // Cursor tracking data - array of {time, x, y}
 let cursorData = [];
 
-// Timer interval
+// Timer
 let timerInterval = null;
 
-// Handle extension icon click (for one-click stop)
-chrome.action.onClicked.addListener((tab) => {
-  // This only fires when popup is disabled (during recording)
-  if (recordingState.isRecording) {
-    stopRecording();
+function defaultCameraSettings() {
+  return {
+    enabled: true,
+    anchor: 'bottom-right',
+    sizePct: 22,
+    opacity: 1,
+    mirror: true,
+    cornerRadiusPct: 50  // 50 = full circle, 0 = square
+  };
+}
+
+// ========== Action icon: click-to-stop ==========
+
+chrome.action.onClicked.addListener(() => {
+  // Only fires when popup is disabled, which we do during recording.
+  if (recordingState.isRecording && recordingState.recorderTabId != null) {
+    chrome.tabs.sendMessage(recordingState.recorderTabId, { type: 'STOP_RECORDING_FROM_BG' }).catch(() => {});
   }
 });
 
-// Listen for messages
+// ========== Messages ==========
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Ignore messages meant for offscreen
-  if (message.target === 'offscreen') {
-    return false;
-  }
+  if (!message) return false;
 
   switch (message.type) {
-    case 'START_RECORDING':
-      startRecording(message.settings).then(() => {
-        sendResponse({ success: true });
-      }).catch((error) => {
-        sendResponse({ success: false, error: error.message });
-      });
-      return true; // Async response
-
-    case 'STOP_RECORDING':
-      stopRecording();
-      sendResponse({ success: true });
-      return false;
-
-    case 'PAUSE_RECORDING':
-      pauseRecording();
-      sendResponse({ success: true });
-      return false;
-
-    case 'RESUME_RECORDING':
-      resumeRecording();
-      sendResponse({ success: true });
-      return false;
-
-    case 'LOG':
-      console.log('[Offscreen Log]', message.message);
-      return false;
+    case 'OPEN_RECORDER':
+      openRecorderTab().then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
 
     case 'GET_STATE':
       sendResponse({
@@ -65,22 +53,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'RECORDING_STARTED':
-      recordingState.isRecording = true;
-      recordingState.isPaused = false;
-      recordingState.recordingTime = 0;
-      cursorData = []; // Reset cursor data to sync with recording start
-      startTimer();
-      setRecordingUI(true);
-      // Reset cursor tracker timer to sync with actual recording start
-      if (recordingState.recordingTabId) {
-        chrome.tabs.sendMessage(recordingState.recordingTabId, { type: 'RESET_CURSOR_TIME' }).catch(() => {});
-      }
-      console.log('[Background] Recording started, cursor timer synced');
+      onRecordingStarted(sender.tab ? sender.tab.id : null);
       return false;
 
+    case 'FOCUS_SOURCE_TAB':
+      if (recordingState.sourceTabId != null) {
+        chrome.tabs.update(recordingState.sourceTabId, { active: true }).catch(() => {});
+      }
+      return false;
+
+    case 'RUN_COUNTDOWN_ON_SOURCE':
+      runCountdownOnSource().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+      return true; // async response
+
     case 'RECORDING_DATA':
-      console.log('[Background] Got RECORDING_DATA message');
-      handleRecordingData(message.data, message.format);
+      handleRecordingData(message.screen, message.webcam);
       return false;
 
     case 'RECORDING_ERROR':
@@ -88,12 +75,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'CURSOR_POSITION':
-      // Collect cursor position data from content script
       if (recordingState.isRecording && !recordingState.isPaused) {
         cursorData.push(message.data);
-        if (cursorData.length % 30 === 0) {
-          console.log('[Background] Received', cursorData.length, 'cursor positions. Latest:', message.data);
-        }
       }
       return false;
 
@@ -102,347 +85,219 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Set UI for recording state
-async function setRecordingUI(isRecording) {
+// ========== Recorder tab lifecycle ==========
+
+async function openRecorderTab() {
+  // Remember which tab the user was on so we can inject cursor tracking there.
   try {
-    if (isRecording) {
-      // Set red badge to indicate recording
-      await chrome.action.setBadgeText({ text: 'REC' });
-      await chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
-      // Disable popup so clicking icon stops recording
-      await chrome.action.setPopup({ popup: '' });
-      // Update tooltip
-      await chrome.action.setTitle({ title: 'Click to stop recording' });
-    } else {
-      // Clear badge
-      await chrome.action.setBadgeText({ text: '' });
-      // Re-enable popup
-      await chrome.action.setPopup({ popup: 'popup/popup.html' });
-      // Restore tooltip
-      await chrome.action.setTitle({ title: 'DaddyRecorder' });
+    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (activeTab) recordingState.sourceTabId = activeTab.id;
+  } catch (_) {}
+
+  // Avoid duplicates if the user double-clicks.
+  if (recordingState.recorderTabId != null) {
+    try {
+      await chrome.tabs.update(recordingState.recorderTabId, { active: true });
+      return;
+    } catch (_) {
+      recordingState.recorderTabId = null;
     }
-  } catch (e) {
-    console.error('Error setting UI:', e);
   }
+
+  const tab = await chrome.tabs.create({
+    url: chrome.runtime.getURL('recorder/recorder.html'),
+    pinned: true,
+    active: true
+  });
+  recordingState.recorderTabId = tab.id;
 }
 
-// Start recording
-async function startRecording(settings) {
-  try {
-    recordingState.settings = settings;
-
-    // Reset cursor data
-    cursorData = [];
-
-    console.log('[Background] Starting recording with settings:', {
-      quality: settings.quality,
-      format: settings.format
-    });
-
-    // IMPORTANT: Inject cursor tracker FIRST, before media picker appears
-    // This ensures we capture the correct tab while it's still active
-    await injectCursorTracker();
-
-    await setupOffscreenDocument();
-
-    // Small wait so the offscreen doc's message listener is registered.
-    await new Promise(resolve => setTimeout(resolve, 150));
-
-    const response = await sendToOffscreen({
-      type: 'START_RECORDING',
-      settings: settings
-    });
-    console.log('[Background] Offscreen response:', response);
-    if (response && !response.success) {
-      throw new Error(response.error || 'Recording failed in offscreen');
-    }
-
-  } catch (error) {
-    console.error('Error starting recording:', error);
-    throw error;
-  }
+async function closeRecorderTab() {
+  const id = recordingState.recorderTabId;
+  recordingState.recorderTabId = null;
+  if (id == null) return;
+  try { await chrome.tabs.remove(id); } catch (_) {}
 }
 
-// Inject cursor tracker into active tab
+function onRecordingStarted(senderTabId) {
+  recordingState.isRecording = true;
+  recordingState.isPaused = false;
+  recordingState.recordingTime = 0;
+  if (senderTabId) recordingState.recorderTabId = senderTabId;
+  cursorData = [];
+  startTimer();
+  setRecordingUI(true);
+  injectCursorTracker();  // non-blocking; best-effort
+  console.log('[Background] Recording started');
+}
+
+// Handle extension tab close: if the recorder tab itself is closed while we
+// think we're recording, treat it as a stop (no data).
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === recordingState.recorderTabId && recordingState.isRecording) {
+    console.log('[Background] Recorder tab closed mid-recording — aborting');
+    recordingState.recorderTabId = null;
+    handleRecordingError('Recorder tab was closed before recording finished');
+  }
+});
+
+// ========== Cursor tracking ==========
+
 async function injectCursorTracker() {
+  const tabId = recordingState.sourceTabId;
+  if (!tabId) return;
   try {
-    // Get the active tab in the current window
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    let tab = tabs[0];
-
-    // Fallback: try current window
-    if (!tab) {
-      const fallbackTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      tab = fallbackTabs[0];
-    }
-
-    if (!tab || !tab.id) {
-      console.log('[Background] No active tab found for cursor tracking');
+    const tab = await chrome.tabs.get(tabId);
+    const url = tab?.url || '';
+    if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
+        url.startsWith('about:') || url.startsWith('edge://')) {
+      console.log('[Background] Skipping cursor tracker for restricted URL:', url);
       return;
     }
-
-    // Skip chrome:// and other restricted URLs
-    const url = tab.url || '';
-    if (url.startsWith('chrome://') ||
-        url.startsWith('chrome-extension://') ||
-        url.startsWith('about:') ||
-        url.startsWith('edge://') ||
-        url === '') {
-      console.log('[Background] Cannot inject into restricted URL:', url);
-      return;
-    }
-
-    recordingState.recordingTabId = tab.id;
-    console.log('[Background] Injecting cursor tracker into tab:', tab.id, 'URL:', url);
-
-    // Inject the cursor tracker script
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId },
       files: ['content/cursorTracker.js']
     });
-    console.log('[Background] Script injected successfully');
-
-    // Small delay to ensure script is ready
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // Start tracking
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_CURSOR_TRACKING' });
-    console.log('[Background] Cursor tracking started, response:', response);
-
-  } catch (error) {
-    console.error('[Background] Cursor tracker injection failed:', error);
-    // Non-fatal - recording continues without cursor tracking
+    await new Promise(r => setTimeout(r, 50));
+    await chrome.tabs.sendMessage(tabId, { type: 'START_CURSOR_TRACKING' });
+    await chrome.tabs.sendMessage(tabId, { type: 'RESET_CURSOR_TIME' });
+  } catch (e) {
+    console.warn('[Background] Cursor tracker injection failed:', e);
   }
 }
 
-// Send message to offscreen document
-async function sendToOffscreen(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({
-      ...message,
-      target: 'offscreen'
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.log('Could not send to offscreen:', chrome.runtime.lastError);
-        reject(new Error(chrome.runtime.lastError.message));
-      } else {
-        resolve(response);
-      }
-    });
-  });
+async function stopCursorTracker() {
+  const tabId = recordingState.sourceTabId;
+  if (!tabId) return;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'STOP_CURSOR_TRACKING' });
+  } catch (_) {}
 }
 
-// Setup offscreen document
-async function setupOffscreenDocument() {
+// Ask the recorded tab to show a 3-2-1 overlay. Also focuses the tab so
+// the user is looking at it during the countdown. Resolves after the
+// overlay has completed.
+async function runCountdownOnSource() {
+  const tabId = recordingState.sourceTabId;
+  if (!tabId) return;
   try {
-    const existingContexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT']
-    });
+    await chrome.tabs.update(tabId, { active: true });
+    await chrome.tabs.sendMessage(tabId, { type: 'SHOW_COUNTDOWN', from: 3 });
+  } catch (e) {
+    console.warn('[Background] Countdown on source failed:', e);
+  }
+}
 
-    // Close existing offscreen document to ensure fresh state
-    if (existingContexts.length > 0) {
-      console.log('[Background] Closing existing offscreen document');
-      await chrome.offscreen.closeDocument();
+// ========== Data handling ==========
+
+async function handleRecordingData(screen, webcam) {
+  if (!screen || !screen.dataUrl) {
+    handleRecordingError('Missing screen recording payload');
+    return;
+  }
+  console.log('[Background] RECORDING_DATA — screen:', screen.format, 'webcam:', webcam ? webcam.format : 'none');
+
+  try {
+    const screenBlob = await (await fetch(screen.dataUrl)).blob();
+    let webcamBlob = null;
+    if (webcam && webcam.dataUrl) {
+      webcamBlob = await (await fetch(webcam.dataUrl)).blob();
     }
 
-    console.log('[Background] Creating offscreen document');
-    await chrome.offscreen.createDocument({
-      url: 'offscreen/offscreen.html',
-      reasons: ['DISPLAY_MEDIA', 'USER_MEDIA'],
-      justification: 'Recording screen/tab content with getDisplayMedia or getUserMedia'
-    });
-    console.log('[Background] Offscreen document created');
-  } catch (e) {
-    console.error('[Background] Offscreen setup error:', e);
-    throw e;
-  }
-}
-
-// Close offscreen document
-async function closeOffscreenDocument() {
-  try {
-    const existingContexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT']
-    });
-
-    if (existingContexts.length > 0) {
-      await chrome.offscreen.closeDocument();
-    }
-  } catch (e) {
-    console.log('Could not close offscreen:', e);
-  }
-}
-
-// Stop recording
-async function stopRecording() {
-  stopTimer();
-
-  // Stop cursor tracking
-  if (recordingState.recordingTabId) {
-    try {
-      await chrome.tabs.sendMessage(recordingState.recordingTabId, { type: 'STOP_CURSOR_TRACKING' });
-    } catch (e) {
-      // Tab might be closed or navigated away
-    }
-  }
-
-  // Tell offscreen to stop
-  try {
-    await sendToOffscreen({ type: 'STOP_RECORDING' });
-  } catch (e) {
-    console.log('Could not send stop to offscreen:', e);
-  }
-}
-
-// Pause recording
-function pauseRecording() {
-  recordingState.isPaused = true;
-  stopTimer();
-  sendToOffscreen({ type: 'PAUSE_RECORDING' }).catch(() => {});
-}
-
-// Resume recording
-function resumeRecording() {
-  recordingState.isPaused = false;
-  startTimer();
-  sendToOffscreen({ type: 'RESUME_RECORDING' }).catch(() => {});
-}
-
-// Handle recording data from offscreen
-async function handleRecordingData(dataUrl, format) {
-  console.log('[Background] Received RECORDING_DATA, format:', format, 'dataUrl length:', dataUrl?.length);
-
-  try {
-    // Convert data URL to Blob
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    console.log('[Background] Blob created from dataUrl, size:', blob.size, 'type:', blob.type);
-
-    // Store in IndexedDB
-    await storeRecording(blob, format);
-    console.log('[Background] Recording stored in IndexedDB');
+    await stopCursorTracker();
+    await storeRecording(screenBlob, screen.format, webcamBlob, webcam ? webcam.format : null);
 
     recordingState.isRecording = false;
     recordingState.isPaused = false;
     recordingState.recordingTime = 0;
-
-    // Restore normal UI
     await setRecordingUI(false);
+    await closeRecorderTab();
 
-    await closeOffscreenDocument();
-
-    // Open editor page
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL('editor/editor.html')
-    });
-
-    // Notify popup (if open)
-    try {
-      await chrome.runtime.sendMessage({
-        type: 'RECORDING_STOPPED',
-        success: true
-      });
-    } catch (e) {
-      // Popup might be closed
-    }
-
-  } catch (error) {
-    console.error('Error saving recording:', error);
+    await chrome.tabs.create({ url: chrome.runtime.getURL('editor/editor.html') });
+  } catch (e) {
+    console.error('[Background] Save error:', e);
     handleRecordingError('Failed to save recording');
   }
 }
 
-// Store recording in IndexedDB
-async function storeRecording(blob, format) {
+async function handleRecordingError(error) {
+  console.warn('[Background] Recording error:', error);
+  recordingState.isRecording = false;
+  recordingState.isPaused = false;
+  stopTimer();
+  await setRecordingUI(false);
+  await stopCursorTracker();
+  await closeRecorderTab();
+}
+
+async function storeRecording(blob, format, webcamBlob, webcamFormat) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('DaddyRecorder', 1);
-
     request.onerror = () => reject(request.error);
-
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
       if (!db.objectStoreNames.contains('recordings')) {
         db.createObjectStore('recordings');
       }
     };
-
     request.onsuccess = () => {
       const db = request.result;
-      const transaction = db.transaction(['recordings'], 'readwrite');
-      const store = transaction.objectStore('recordings');
-
-      console.log('[Background] Storing recording with', cursorData.length, 'cursor positions');
-      if (cursorData.length > 0) {
-        console.log('[Background] First cursor point:', cursorData[0]);
-        console.log('[Background] Last cursor point:', cursorData[cursorData.length - 1]);
-      }
-
+      const tx = db.transaction(['recordings'], 'readwrite');
+      const store = tx.objectStore('recordings');
       const data = {
-        blob: blob,
-        format: format,
+        blob,
+        format,
         timestamp: Date.now(),
-        cursorData: [...cursorData] // Copy the array to ensure it's stored
+        cursorData: [...cursorData],
+        webcamBlob: webcamBlob || null,
+        webcamFormat: webcamFormat || null,
+        cameraSettings: webcamBlob ? defaultCameraSettings() : null
       };
-
-      const putRequest = store.put(data, 'latest');
-      putRequest.onsuccess = () => {
-        // Clear cursor data after storing
+      const put = store.put(data, 'latest');
+      put.onsuccess = () => {
         cursorData = [];
-        recordingState.recordingTabId = null;
+        recordingState.sourceTabId = null;
         resolve();
       };
-      putRequest.onerror = () => reject(putRequest.error);
+      put.onerror = () => reject(put.error);
     };
   });
 }
 
-// Handle recording error
-async function handleRecordingError(error) {
-  recordingState.isRecording = false;
-  recordingState.isPaused = false;
-  stopTimer();
+// ========== Icon / badge ==========
 
-  // Restore normal UI
-  await setRecordingUI(false);
-
-  await closeOffscreenDocument();
-
+async function setRecordingUI(isRecording) {
   try {
-    await chrome.runtime.sendMessage({
-      type: 'RECORDING_ERROR',
-      error: error
-    });
+    if (isRecording) {
+      await chrome.action.setBadgeText({ text: 'REC' });
+      await chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+      await chrome.action.setPopup({ popup: '' });
+      await chrome.action.setTitle({ title: 'Click to stop recording' });
+    } else {
+      await chrome.action.setBadgeText({ text: '' });
+      await chrome.action.setPopup({ popup: 'popup/popup.html' });
+      await chrome.action.setTitle({ title: 'DaddyRecorder' });
+    }
   } catch (e) {
-    // Popup might be closed
+    console.error('[Background] UI error:', e);
   }
 }
 
-// Timer functions
+// ========== Timer ==========
+
 function startTimer() {
   stopTimer();
-  timerInterval = setInterval(() => {
-    recordingState.recordingTime++;
-  }, 1000);
+  timerInterval = setInterval(() => { recordingState.recordingTime++; }, 1000);
 }
-
 function stopTimer() {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
 }
 
-// Clean up on extension unload
+// ========== Boot / lifecycle ==========
+
+chrome.runtime.onStartup.addListener(() => setRecordingUI(false));
+chrome.runtime.onInstalled.addListener(() => setRecordingUI(false));
 chrome.runtime.onSuspend.addListener(() => {
   stopTimer();
-  closeOffscreenDocument();
-});
-
-// Initialize - ensure UI is in correct state on startup
-chrome.runtime.onStartup.addListener(() => {
-  setRecordingUI(false);
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-  setRecordingUI(false);
+  closeRecorderTab();
 });

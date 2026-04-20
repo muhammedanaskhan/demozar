@@ -204,6 +204,66 @@ body {
   justify-content: center;
 }
 
+/* Webcam bubble overlay — sits on top of the screen video.
+   Position/size driven by inline styles set from state.cameraSettings. */
+.webcam-bubble {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+  border-radius: 50%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.12);
+  z-index: 5;
+  aspect-ratio: 1 / 1;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.webcam-bubble.dragging { cursor: grabbing; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--primary-light, #17FEA0); }
+
+/* Visible resize handle at the bottom-right of the bubble. Sized large
+   enough to be a clear affordance; brighter on hover. */
+.webcam-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 26px;
+  height: 26px;
+  cursor: nwse-resize;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  opacity: 0.85;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 2;
+}
+.webcam-bubble:hover .webcam-resize-handle,
+.webcam-bubble.dragging .webcam-resize-handle,
+.webcam-bubble.resizing .webcam-resize-handle {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.webcam-bubble.hidden {
+  display: none;
+}
+
+/* Corner radius is set inline via JS — no per-shape CSS needed anymore. */
+
+.webcam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.webcam-bubble.mirror .webcam-video {
+  transform: scaleX(-1);
+}
+
 /* Minimal Browser Frame - Cursorful style */
 .minimal-frame {
   background: linear-gradient(180deg, #303032 0%, #28282a 100%);
@@ -853,6 +913,7 @@ body {
   justify-content: center;
   color: var(--text-muted);
   transition: all var(--transition);
+  position: relative;
 }
 
 .sidebar-tab:hover {
@@ -863,6 +924,29 @@ body {
 .sidebar-tab.active {
   background: var(--primary-bg);
   color: var(--primary);
+}
+
+/* Hover tooltip label to the LEFT of the icon strip */
+.sidebar-tab-label {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 10px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+}
+.sidebar-tab:hover .sidebar-tab-label {
+  opacity: 1;
 }
 
 /* Sidebar Content */
@@ -1415,6 +1499,68 @@ body {
   box-shadow: none;
 }
 
+/* Camera hide track */
+.camera-hide-track {
+  border-top: 1px solid var(--border-light);
+}
+.camera-hide-track .track-label { height: 36px; }
+.timeline-camera-hides {
+  position: relative;
+  height: 22px;
+}
+.camera-hide-segment {
+  position: absolute;
+  height: 100%;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 10px;
+  min-width: 30px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.camera-hide-segment:hover { background: rgba(148, 163, 184, 0.22); }
+.camera-hide-segment.selected {
+  background: rgba(148, 163, 184, 0.28);
+  border-color: rgba(148, 163, 184, 0.9);
+  border-width: 2px;
+}
+.camera-hide-segment svg { flex-shrink: 0; }
+.camera-hide-segment span { overflow: hidden; text-overflow: ellipsis; }
+
+/* Camera panel "Hide camera here" button */
+.camera-add-hide-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.camera-add-hide-btn:hover { border-color: var(--primary-light); }
+.camera-add-hide-btn:active { transform: translateY(1px); }
+
+.camera-hide-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .zoom-segment-content {
   display: flex;
   align-items: center;
@@ -1479,12 +1625,38 @@ body {
 }
 
 /* Zoom Controls Panel */
-.zoom-panel {
+.zoom-panel, .camera-panel {
   display: none;
 }
 
-.zoom-panel.active {
+.zoom-panel.active, .camera-panel.active {
   display: block;
+}
+
+.camera-empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+}
+.camera-empty-state svg { margin-bottom: 12px; opacity: 0.5; }
+.camera-empty-state p  { font-size: 13px; line-height: 1.5; }
+
+.camera-controls { padding: 4px 0; }
+
+.camera-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.camera-toggle-row .zoom-control-label {
+  margin-bottom: 0;
+}
+
+/* Anchor grid reuses position-grid — individual cells respond to data-anchor */
+#cameraAnchorGrid .position-cell.active {
+  /* just inherits the existing .position-cell.active style */
 }
 
 .zoom-empty-state {

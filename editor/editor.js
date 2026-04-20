@@ -2,6 +2,10 @@
 const state = {
   videoBlob: null,
   videoUrl: null,
+  // Webcam bubble overlay (null when the recording had no camera stream)
+  webcamBlob: null,
+  webcamUrl: null,
+  cameraSettings: null,  // { enabled, anchor, sizePct, opacity, mirror, shape }
   isPlaying: false,
   currentTime: 0,
   duration: 0,
@@ -11,6 +15,10 @@ const state = {
   // Zoom segments - each has { id, start, end, position, fixedX, fixedY, depth }
   zoomSegments: [],
   selectedZoomId: null,
+  // Camera hide segments — intervals where the webcam bubble is HIDDEN.
+  // Bubble is visible by default; adding a segment hides it for that range.
+  cameraHideSegments: [],
+  selectedCameraHideId: null,
   // Recorded cursor data from recording session - array of {time, x, y}
   cursorData: [],
   // Current cursor position for zoom (from recorded data or manual)
@@ -85,6 +93,68 @@ function getZoomById(id) {
 // Get active zoom at a given time
 function getZoomAtTime(time) {
   return state.zoomSegments.find(z => time >= z.start && time < z.end);
+}
+
+// Camera hide segment helpers
+function generateCameraHideId() {
+  return 'camhide_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+function isCameraHiddenAt(time) {
+  return state.cameraHideSegments.some(seg => time >= seg.start && time < seg.end);
+}
+
+function createCameraHideSegment() {
+  const t = elements.videoPlayer.currentTime;
+  const remaining = state.duration - t;
+  if (!isFinite(remaining) || remaining <= 0.1) return null;
+  const seg = {
+    id: generateCameraHideId(),
+    start: t,
+    end: t + Math.min(2, remaining)
+  };
+  state.cameraHideSegments.push(seg);
+  state.selectedCameraHideId = seg.id;
+  renderCameraHideSegments();
+  saveCameraSettings(); // persists the list too
+  return seg;
+}
+
+function deleteSelectedCameraHide() {
+  if (!state.selectedCameraHideId) return;
+  state.cameraHideSegments = state.cameraHideSegments.filter(s => s.id !== state.selectedCameraHideId);
+  state.selectedCameraHideId = null;
+  renderCameraHideSegments();
+  saveCameraSettings();
+}
+
+function renderCameraHideSegments() {
+  const container = document.getElementById('timelineCameraHides');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!isFinite(state.duration) || state.duration <= 0) return;
+
+  state.cameraHideSegments.forEach(seg => {
+    const el = document.createElement('div');
+    el.className = 'camera-hide-segment' + (seg.id === state.selectedCameraHideId ? ' selected' : '');
+    const leftPct = (seg.start / state.duration) * 100;
+    const widthPct = ((seg.end - seg.start) / state.duration) * 100;
+    el.style.left = leftPct + '%';
+    el.style.width = widthPct + '%';
+    el.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+        <line x1="2" y1="2" x2="22" y2="22" stroke-width="2.5"/>
+      </svg>
+      <span>Camera hidden</span>
+    `;
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.selectedCameraHideId = seg.id;
+      renderCameraHideSegments();
+    });
+    container.appendChild(el);
+  });
 }
 
 // Get recorded cursor position at a given time (interpolated)
@@ -256,9 +326,52 @@ function switchToSettingsPanel() {
     tab.classList.toggle('active', tab.dataset.tab === 'settings');
   });
 
-  // Show settings panel, hide zoom
+  // Show settings panel, hide zoom + camera
   elements.zoomPanel.classList.remove('active');
+  if (elements.cameraPanel) elements.cameraPanel.classList.remove('active');
   elements.settingsPanel.style.display = '';
+}
+
+// Switch sidebar to camera panel
+function switchToCameraPanel() {
+  document.querySelectorAll('.sidebar-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === 'camera');
+  });
+  elements.zoomPanel.classList.remove('active');
+  if (elements.cameraPanel) elements.cameraPanel.classList.add('active');
+  elements.settingsPanel.style.display = 'none';
+  updateCameraPanel();
+}
+
+// Reflect state.cameraSettings into the panel's controls; also toggle
+// empty-state when there is no webcam on this recording.
+function updateCameraPanel() {
+  if (!elements.cameraPanel) return;
+  const hasCam = !!state.webcamUrl;
+  if (elements.cameraEmptyState) {
+    elements.cameraEmptyState.classList.toggle('hidden', hasCam);
+  }
+  if (elements.cameraControls) {
+    elements.cameraControls.classList.toggle('hidden', !hasCam);
+  }
+  if (!hasCam || !state.cameraSettings) return;
+
+  const s = state.cameraSettings;
+  if (elements.cameraShow) elements.cameraShow.checked = !!s.enabled;
+  if (elements.cameraSize) elements.cameraSize.value = String(s.sizePct ?? 22);
+  if (elements.cameraSizeValue) elements.cameraSizeValue.textContent = (s.sizePct ?? 22) + '%';
+  if (elements.cameraOpacity) elements.cameraOpacity.value = String(Math.round((s.opacity ?? 1) * 100));
+  if (elements.cameraOpacityValue) elements.cameraOpacityValue.textContent = Math.round((s.opacity ?? 1) * 100) + '%';
+  if (elements.cameraMirror) elements.cameraMirror.checked = !!s.mirror;
+
+  document.querySelectorAll('#cameraAnchorGrid .position-cell').forEach(cell => {
+    cell.classList.toggle('active', cell.dataset.anchor === s.anchor);
+  });
+
+  const r = getCornerRadiusPct(s);
+  if (elements.cameraRadius) elements.cameraRadius.value = String(r);
+  if (elements.cameraRadiusValue) elements.cameraRadiusValue.textContent = r + '%';
+  syncRadiusPresetButtons(r);
 }
 
 // Delete selected zoom segment
@@ -412,7 +525,23 @@ const elements = {
   zoomDepth: document.getElementById('zoomDepth'),
   depthValue: document.getElementById('depthValue'),
   deleteZoomBtn: document.getElementById('deleteZoomBtn'),
-  settingsPanel: document.getElementById('settingsPanel')
+  settingsPanel: document.getElementById('settingsPanel'),
+  // Webcam bubble
+  webcamBubble: document.getElementById('webcamBubble'),
+  webcamPlayer: document.getElementById('webcamPlayer'),
+  // Camera panel
+  cameraPanel: document.getElementById('cameraPanel'),
+  cameraEmptyState: document.getElementById('cameraEmptyState'),
+  cameraControls: document.getElementById('cameraControls'),
+  cameraShow: document.getElementById('cameraShow'),
+  cameraAnchorGrid: document.getElementById('cameraAnchorGrid'),
+  cameraSize: document.getElementById('cameraSize'),
+  cameraSizeValue: document.getElementById('cameraSizeValue'),
+  cameraOpacity: document.getElementById('cameraOpacity'),
+  cameraOpacityValue: document.getElementById('cameraOpacityValue'),
+  cameraMirror: document.getElementById('cameraMirror'),
+  cameraRadius: document.getElementById('cameraRadius'),
+  cameraRadiusValue: document.getElementById('cameraRadiusValue')
 };
 
 // Initialize
@@ -447,6 +576,28 @@ async function loadVideo() {
           console.log('[Editor] Loaded', state.cursorData.length, 'cursor positions');
         } else {
           console.log('[Editor] No cursor data available for this recording');
+        }
+
+        // Load webcam bubble if the recording captured one
+        if (data.webcamBlob) {
+          state.webcamBlob = data.webcamBlob;
+          state.webcamUrl = URL.createObjectURL(data.webcamBlob);
+          state.cameraSettings = data.cameraSettings || {
+            enabled: true,
+            anchor: 'bottom-right',
+            sizePct: 22,
+            opacity: 1,
+            mirror: true,
+            cornerRadiusPct: 50
+          };
+          if (Array.isArray(data.cameraHideSegments)) {
+            state.cameraHideSegments = data.cameraHideSegments;
+          }
+          console.log('[Editor] Webcam bubble loaded,', data.webcamBlob.size, 'bytes');
+          attachWebcamBubble();
+          renderCameraHideSegments();
+        } else {
+          state.cameraSettings = null;
         }
 
         elements.videoPlayer.onerror = (e) => {
@@ -841,6 +992,233 @@ function openDB() {
   });
 }
 
+// Corner radius as a percentage of the bubble's half-width. 0 = square,
+// 50 = circle. Migrates legacy `shape` values to a radius if needed.
+function getCornerRadiusPct(settings) {
+  if (!settings) return 50;
+  if (typeof settings.cornerRadiusPct === 'number') return settings.cornerRadiusPct;
+  // Legacy migration
+  switch (settings.shape) {
+    case 'square':  return 0;
+    case 'rounded': return 18;
+    default:        return 50; // circle
+  }
+}
+
+// Highlight the preset button whose radius matches the current value
+// (or clear them all if the value is in between presets).
+function syncRadiusPresetButtons(pct) {
+  document.querySelectorAll('[data-radius-preset]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.radiusPreset, 10) === pct);
+  });
+}
+
+// Wire up the webcam bubble overlay once a recording with webcam is loaded.
+// Keeps webcamPlayer.currentTime locked to videoPlayer, mirrors play/pause,
+// and paints a visual bubble whose position/size/shape tracks cameraSettings.
+function attachWebcamBubble() {
+  if (!state.webcamUrl || !elements.webcamPlayer || !elements.webcamBubble) return;
+
+  const main = elements.videoPlayer;
+  const cam = elements.webcamPlayer;
+  cam.src = state.webcamUrl;
+
+  // Sync time on every main-video tick + explicit events. Webcam frame drift
+  // beyond ~0.15 s gets snapped rather than drifted.
+  const resync = () => {
+    if (!main || !cam) return;
+    if (!isFinite(main.currentTime) || !isFinite(cam.duration)) return;
+    const target = Math.min(main.currentTime, cam.duration || main.currentTime);
+    if (Math.abs((cam.currentTime || 0) - target) > 0.15) {
+      try { cam.currentTime = target; } catch (_) {}
+    }
+  };
+
+  main.addEventListener('timeupdate', resync);
+  main.addEventListener('seeked', resync);
+  main.addEventListener('play', () => {
+    resync();
+    cam.play().catch(() => {});
+  });
+  main.addEventListener('pause', () => {
+    cam.pause();
+  });
+  main.addEventListener('ratechange', () => {
+    cam.playbackRate = main.playbackRate;
+  });
+
+  attachBubbleDragHandlers();
+
+  updateCameraBubble();
+}
+
+// Mouse drag on the bubble body → reposition (updates customX/customY).
+// Mouse drag on the resize handle → scales sizePct.
+function attachBubbleDragHandlers() {
+  const bubble = elements.webcamBubble;
+  if (!bubble) return;
+  const handle = document.getElementById('webcamResizeHandle');
+
+  bubble.addEventListener('pointerdown', (e) => {
+    if (e.target === handle || handle?.contains(e.target)) return; // resize handled below
+    if (!state.cameraSettings) return;
+    e.preventDefault();
+    // Clicking the bubble opens its panel, matching direct-manipulation UX
+    // in design tools — select an object, see its properties.
+    switchToCameraPanel();
+    bubble.setPointerCapture(e.pointerId);
+    bubble.classList.add('dragging');
+
+    const container = elements.videoContainer;
+    const rect = container.getBoundingClientRect();
+    const bubbleRect = bubble.getBoundingClientRect();
+    const offsetX = e.clientX - bubbleRect.left;
+    const offsetY = e.clientY - bubbleRect.top;
+
+    const onMove = (ev) => {
+      const rawX = ev.clientX - rect.left - offsetX;
+      const rawY = ev.clientY - rect.top - offsetY;
+      const cw = rect.width, ch = rect.height;
+      // Normalize to 0..1 (top-left corner of bubble)
+      state.cameraSettings.customX = Math.max(0, Math.min(1, rawX / cw));
+      state.cameraSettings.customY = Math.max(0, Math.min(1, rawY / ch));
+      state.cameraSettings.anchor = null; // custom position takes over
+      updateCameraBubble();
+    };
+    const onUp = () => {
+      bubble.releasePointerCapture(e.pointerId);
+      bubble.classList.remove('dragging');
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      // Clear the 9-point picker's "active" cell since we're free-form now
+      document.querySelectorAll('#cameraAnchorGrid .position-cell').forEach(c => c.classList.remove('active'));
+      saveCameraSettings();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+
+  if (!handle) return;
+  handle.addEventListener('pointerdown', (e) => {
+    if (!state.cameraSettings) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handle.setPointerCapture(e.pointerId);
+    bubble.classList.add('resizing');
+
+    const container = elements.videoContainer;
+    const cw = container.clientWidth || 1;
+    const startSize = bubble.clientWidth;
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startMouseX;
+      const dy = ev.clientY - startMouseY;
+      // Use the larger of the two diffs for proportional resize
+      const delta = Math.max(dx, dy);
+      const newSize = Math.max(60, Math.min(cw * 0.6, startSize + delta));
+      state.cameraSettings.sizePct = Math.round((newSize / cw) * 100);
+      // Keep the sidebar slider in sync
+      if (elements.cameraSize) elements.cameraSize.value = String(state.cameraSettings.sizePct);
+      if (elements.cameraSizeValue) elements.cameraSizeValue.textContent = state.cameraSettings.sizePct + '%';
+      updateCameraBubble();
+    };
+    const onUp = () => {
+      handle.releasePointerCapture(e.pointerId);
+      bubble.classList.remove('resizing');
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      saveCameraSettings();
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+}
+
+// Paint the bubble based on current state.cameraSettings. Called on load and
+// whenever a sidebar control changes.
+function updateCameraBubble() {
+  const bubble = elements.webcamBubble;
+  if (!bubble) return;
+
+  const s = state.cameraSettings;
+  if (!s || !state.webcamUrl) {
+    bubble.classList.add('hidden');
+    return;
+  }
+
+  if (!s.enabled) {
+    bubble.classList.add('hidden');
+    return;
+  }
+
+  // A "hide" segment covering the current time overrides visibility
+  if (isCameraHiddenAt(elements.videoPlayer.currentTime || 0)) {
+    bubble.classList.add('hidden');
+    return;
+  }
+
+  bubble.classList.remove('hidden');
+
+  // Position is normalized to the preview (.video-container). Bubble is
+  // always square; the visual shape is driven by border-radius.
+  const container = elements.videoContainer;
+  const cw = container?.clientWidth || 0;
+  const ch = container?.clientHeight || 0;
+  const size = Math.round((s.sizePct / 100) * (cw || 800));
+
+  bubble.style.width = size + 'px';
+  bubble.style.height = size + 'px';
+  bubble.style.opacity = String(s.opacity ?? 1);
+  bubble.style.borderRadius = getCornerRadiusPct(s) + '%';
+
+  let left, top;
+  if (s.customX != null && s.customY != null) {
+    // Dragged free-form: normalized 0..1 relative to container
+    left = Math.round(s.customX * cw);
+    top = Math.round(s.customY * ch);
+  } else {
+    // 9-point anchor: {top|middle|bottom}-{left|center|right}
+    const margin = 16;
+    left = margin; top = margin;
+    const [vAnchor, hAnchor] = (s.anchor || 'bottom-right').split('-');
+    if (hAnchor === 'center') left = Math.round((cw - size) / 2);
+    else if (hAnchor === 'right') left = Math.max(0, cw - size - margin);
+    if (vAnchor === 'middle') top = Math.round((ch - size) / 2);
+    else if (vAnchor === 'bottom') top = Math.max(0, ch - size - margin);
+  }
+
+  // Clamp so the bubble stays inside the preview
+  left = Math.max(0, Math.min(cw - size, left));
+  top = Math.max(0, Math.min(ch - size, top));
+
+  bubble.style.left = left + 'px';
+  bubble.style.top = top + 'px';
+
+  bubble.classList.toggle('mirror', !!s.mirror);
+}
+
+// Persist cameraSettings + cameraHideSegments on the current 'latest' recording.
+async function saveCameraSettings() {
+  if (!state.cameraSettings && !state.cameraHideSegments?.length) return;
+  try {
+    const db = await openDB();
+    const tx = db.transaction(['recordings'], 'readwrite');
+    const store = tx.objectStore('recordings');
+    const getReq = store.get('latest');
+    getReq.onsuccess = () => {
+      const data = getReq.result;
+      if (!data) return;
+      if (state.cameraSettings) data.cameraSettings = { ...state.cameraSettings };
+      data.cameraHideSegments = [...state.cameraHideSegments];
+      store.put(data, 'latest');
+    };
+  } catch (e) {
+    console.warn('[Editor] Could not persist camera settings:', e);
+  }
+}
+
 // Show error message
 function showError(message) {
   const errorDiv = document.createElement('div');
@@ -879,6 +1257,9 @@ function showError(message) {
 
 // Bind events
 function bindEvents() {
+  // Reposition the webcam bubble on viewport resize — it's laid out in pixels.
+  window.addEventListener('resize', updateCameraBubble);
+
   // Play/Pause
   elements.playBtn.addEventListener('click', togglePlay);
   elements.videoPlayer.addEventListener('click', togglePlay);
@@ -889,6 +1270,7 @@ function bindEvents() {
     updateProgress();
     updatePlaybackRate();
     applyZoomEffect();
+    updateCameraBubble(); // respect camera-hide segments
   });
   elements.videoPlayer.addEventListener('ended', () => {
     state.isPlaying = false;
@@ -1124,10 +1506,93 @@ function bindEvents() {
         switchToSettingsPanel();
       } else if (tabType === 'zoom') {
         switchToZoomPanel();
+      } else if (tabType === 'camera') {
+        switchToCameraPanel();
       }
       // Other tabs can be added later
     });
   });
+
+  // Camera panel controls
+  if (elements.cameraShow) {
+    elements.cameraShow.addEventListener('change', (e) => {
+      if (!state.cameraSettings) return;
+      state.cameraSettings.enabled = !!e.target.checked;
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+  if (elements.cameraAnchorGrid) {
+    elements.cameraAnchorGrid.addEventListener('click', (e) => {
+      const cell = e.target.closest('.position-cell');
+      if (!cell || !state.cameraSettings) return;
+      state.cameraSettings.anchor = cell.dataset.anchor;
+      // Snapping back to a named anchor discards any prior drag position.
+      state.cameraSettings.customX = null;
+      state.cameraSettings.customY = null;
+      document.querySelectorAll('#cameraAnchorGrid .position-cell')
+        .forEach(c => c.classList.toggle('active', c === cell));
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+  if (elements.cameraSize) {
+    elements.cameraSize.addEventListener('input', (e) => {
+      if (!state.cameraSettings) return;
+      state.cameraSettings.sizePct = parseInt(e.target.value, 10);
+      if (elements.cameraSizeValue) elements.cameraSizeValue.textContent = e.target.value + '%';
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+  if (elements.cameraOpacity) {
+    elements.cameraOpacity.addEventListener('input', (e) => {
+      if (!state.cameraSettings) return;
+      state.cameraSettings.opacity = parseInt(e.target.value, 10) / 100;
+      if (elements.cameraOpacityValue) elements.cameraOpacityValue.textContent = e.target.value + '%';
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+  if (elements.cameraMirror) {
+    elements.cameraMirror.addEventListener('change', (e) => {
+      if (!state.cameraSettings) return;
+      state.cameraSettings.mirror = !!e.target.checked;
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+  if (elements.cameraRadius) {
+    elements.cameraRadius.addEventListener('input', (e) => {
+      if (!state.cameraSettings) return;
+      const pct = parseInt(e.target.value, 10);
+      state.cameraSettings.cornerRadiusPct = pct;
+      state.cameraSettings.shape = null;
+      if (elements.cameraRadiusValue) elements.cameraRadiusValue.textContent = pct + '%';
+      syncRadiusPresetButtons(pct);
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  }
+
+  document.querySelectorAll('[data-radius-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!state.cameraSettings) return;
+      const pct = parseInt(btn.dataset.radiusPreset, 10);
+      state.cameraSettings.cornerRadiusPct = pct;
+      state.cameraSettings.shape = null;
+      if (elements.cameraRadius) elements.cameraRadius.value = String(pct);
+      if (elements.cameraRadiusValue) elements.cameraRadiusValue.textContent = pct + '%';
+      syncRadiusPresetButtons(pct);
+      updateCameraBubble();
+      saveCameraSettings();
+    });
+  });
+
+  const addHide = document.getElementById('cameraAddHide');
+  if (addHide) addHide.addEventListener('click', createCameraHideSegment);
+  const delHide = document.getElementById('cameraDeleteHide');
+  if (delHide) delHide.addEventListener('click', deleteSelectedCameraHide);
 
   const customSpeedInput = document.getElementById('customSpeed');
   const customSpeedWrapper = document.getElementById('customSpeedWrapper');
@@ -1847,6 +2312,9 @@ function updatePreview() {
   // Shadow & border
   elements.previewFrame.classList.toggle('has-shadow', state.frameShadow);
   elements.previewFrame.classList.toggle('has-border', state.frameBorder);
+
+  // Webcam bubble overlay tracks whatever the preview is doing.
+  updateCameraBubble();
 }
 
 // Export video
@@ -1932,9 +2400,21 @@ async function exportVideo() {
     // Set up MediaRecorder for canvas
     const stream = canvas.captureStream(30);
 
+    // Carry the original recording's audio track(s) into the exported file so
+    // mic / system audio don't get lost. captureStream() on the <video> element
+    // shares its live media tracks with us.
+    try {
+      if (typeof video.captureStream === 'function') {
+        const srcStream = video.captureStream();
+        srcStream.getAudioTracks().forEach(t => stream.addTrack(t));
+      }
+    } catch (e) {
+      console.warn('[Editor] Could not attach source audio to export stream:', e);
+    }
+
     const mimeType = format === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')
       ? 'video/mp4'
-      : 'video/webm;codecs=vp9';
+      : 'video/webm;codecs=vp9,opus';
 
     const recorder = new MediaRecorder(stream, {
       mimeType,
@@ -2136,6 +2616,10 @@ async function exportVideo() {
       }
       ctx.restore();
 
+      // Webcam bubble overlay — drawn AFTER the video so it sits on top,
+      // but BEFORE the border so the bubble doesn't clip the corner stroke.
+      drawWebcamBubble(videoX, videoY, videoWidth, videoHeight);
+
       // Draw border if enabled
       if (state.frameBorder) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -2145,6 +2629,87 @@ async function exportVideo() {
         ctx.roundRect(videoX, frameY, videoWidth, videoHeight + frameHeight, 12);
         ctx.stroke();
       }
+    }
+
+    // Composite the webcam bubble into the export canvas. Mirrors the
+    // preview bubble's anchor/size/opacity/shape/mirror config, including
+    // non-square aspect ratios (portrait / landscape presets).
+    function drawWebcamBubble(vx, vy, vw, vh) {
+      const s = state.cameraSettings;
+      if (!s || !s.enabled) return;
+      if (isCameraHiddenAt(video.currentTime || 0)) return;
+      const cam = elements.webcamPlayer;
+      if (!cam || cam.readyState < 2) return;
+
+      // Bubble is a square whose visual shape is driven by corner radius.
+      const bubbleW = Math.round((s.sizePct / 100) * vw);
+      const bubbleH = bubbleW;
+      const margin = Math.round(vw * 0.02); // 2% inset
+
+      let x, y;
+      if (s.customX != null && s.customY != null) {
+        // Custom drag position — normalized to the preview container in the
+        // editor, applied 1:1 to the video region at export time.
+        x = vx + s.customX * vw;
+        y = vy + s.customY * vh;
+      } else {
+        // 9-point anchor
+        x = vx + margin;
+        y = vy + margin;
+        const [vAnc, hAnc] = (s.anchor || 'bottom-right').split('-');
+        if (hAnc === 'center') x = vx + (vw - bubbleW) / 2;
+        else if (hAnc === 'right') x = vx + vw - bubbleW - margin;
+        if (vAnc === 'middle') y = vy + (vh - bubbleH) / 2;
+        else if (vAnc === 'bottom') y = vy + vh - bubbleH - margin;
+      }
+      // Clamp so the bubble stays inside the video region in export too
+      x = Math.max(vx, Math.min(vx + vw - bubbleW, x));
+      y = Math.max(vy, Math.min(vy + vh - bubbleH, y));
+      // Alias for the rest of the function — mask + draw below use a
+      // single "size" when the shape is square-ish (circle/rounded/square)
+      // but need separate w/h for portrait/landscape.
+      const size = bubbleW; // legacy reference for circle path math
+
+      // Mask / stroke path derived from corner-radius %. A radius of 50
+      // equals half the bubble width, i.e. a full circle.
+      const radius = (getCornerRadiusPct(s) / 100) * bubbleW;
+      const tracePath = () => {
+        ctx.beginPath();
+        ctx.roundRect(x, y, bubbleW, bubbleH, radius);
+      };
+
+      ctx.save();
+      ctx.globalAlpha = s.opacity ?? 1;
+      tracePath();
+      ctx.clip();
+
+      // Cover-fit the webcam video frame into the bubble rectangle.
+      const cw = cam.videoWidth || 640;
+      const ch = cam.videoHeight || 480;
+      const scale = Math.max(bubbleW / cw, bubbleH / ch);
+      const dw = cw * scale;
+      const dh = ch * scale;
+      const dx = x + (bubbleW - dw) / 2;
+      const dy = y + (bubbleH - dh) / 2;
+
+      if (s.mirror) {
+        ctx.translate(x + bubbleW, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(cam, x + bubbleW - dx - dw, dy, dw, dh);
+      } else {
+        ctx.drawImage(cam, dx, dy, dw, dh);
+      }
+
+      ctx.restore();
+
+      // Subtle ring around the bubble, matching the preview shadow.
+      ctx.save();
+      ctx.globalAlpha = (s.opacity ?? 1) * 0.7;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      tracePath();
+      ctx.stroke();
+      ctx.restore();
     }
 
     // Process each clip sequentially

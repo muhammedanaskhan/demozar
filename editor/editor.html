@@ -62,6 +62,12 @@
             </div>
             <div class="video-container" id="videoContainer">
               <video id="videoPlayer" class="video-player"></video>
+              <div class="webcam-bubble hidden" id="webcamBubble">
+                <video id="webcamPlayer" class="webcam-video" muted playsinline></video>
+                <div class="webcam-resize-handle" id="webcamResizeHandle" title="Drag to resize">
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -200,6 +206,18 @@
               </div>
             </div>
           </div>
+          <!-- Camera hide segments track -->
+          <div class="timeline-track-row camera-hide-track">
+            <div class="track-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                <line x1="2" y1="2" x2="22" y2="22"/>
+              </svg>
+            </div>
+            <div class="timeline-zoom-wrapper">
+              <div class="timeline-camera-hides" id="timelineCameraHides"></div>
+            </div>
+          </div>
           <!-- Playhead spans all tracks -->
           <div class="timeline-playhead" id="timelinePlayhead"></div>
         </div>
@@ -208,38 +226,50 @@
 
     <!-- Sidebar Icon Strip -->
     <div class="sidebar-tabs">
-      <button class="sidebar-tab active" data-tab="settings">
+      <button class="sidebar-tab active" data-tab="settings" title="Settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
         </svg>
+        <span class="sidebar-tab-label">Settings</span>
       </button>
-      <button class="sidebar-tab" data-tab="export">
+      <button class="sidebar-tab" data-tab="export" title="Export">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
+        <span class="sidebar-tab-label">Export</span>
       </button>
-      <button class="sidebar-tab" data-tab="zoom">
+      <button class="sidebar-tab" data-tab="zoom" title="Zoom">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           <line x1="11" y1="8" x2="11" y2="14"/>
           <line x1="8" y1="11" x2="14" y2="11"/>
         </svg>
+        <span class="sidebar-tab-label">Zoom</span>
       </button>
-      <button class="sidebar-tab" data-tab="crop">
+      <button class="sidebar-tab" data-tab="camera" id="sidebarTabCamera" title="Camera">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 7l-7 5 7 5V7z"/>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+        <span class="sidebar-tab-label">Camera</span>
+      </button>
+      <button class="sidebar-tab" data-tab="crop" title="Crop">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
           <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
         </svg>
+        <span class="sidebar-tab-label">Crop</span>
       </button>
-      <button class="sidebar-tab" data-tab="captions">
+      <button class="sidebar-tab" data-tab="captions" title="Captions">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="4" width="20" height="16" rx="2"/>
           <path d="M7 12h2M15 12h2M7 16h10"/>
         </svg>
+        <span class="sidebar-tab-label">Captions</span>
       </button>
     </div>
 
@@ -320,6 +350,113 @@
               </svg>
               Delete Zoom
             </button>
+          </div>
+        </div>
+
+        <!-- Camera Panel -->
+        <div class="camera-panel" id="cameraPanel">
+          <div class="camera-empty-state hidden" id="cameraEmptyState">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M23 7l-7 5 7 5V7z"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+            <p>This recording has no webcam.<br>Enable "Camera" in the popup before recording.</p>
+          </div>
+
+          <div class="camera-controls" id="cameraControls">
+            <div class="zoom-control-group">
+              <div class="camera-toggle-row">
+                <span class="zoom-control-label">Show camera bubble</span>
+                <label class="toggle">
+                  <input type="checkbox" id="cameraShow" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Hide camera for part of the recording</span>
+              <button class="camera-add-hide-btn" id="cameraAddHide">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                  <line x1="2" y1="2" x2="22" y2="22"/>
+                </svg>
+                Hide camera at this moment
+              </button>
+              <button class="delete-zoom-btn" id="cameraDeleteHide" style="margin-top: 8px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Delete selected hide segment
+              </button>
+              <p class="camera-hide-hint">
+                Creates a 2 s range starting at the playhead. Click a segment on the timeline to select it, then delete.
+              </p>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Anchor</span>
+              <div class="fixed-position-picker active">
+                <div class="position-grid" id="cameraAnchorGrid">
+                  <button class="position-cell" data-anchor="top-left"></button>
+                  <button class="position-cell" data-anchor="top-center"></button>
+                  <button class="position-cell" data-anchor="top-right"></button>
+                  <button class="position-cell" data-anchor="middle-left"></button>
+                  <button class="position-cell" data-anchor="middle-center"></button>
+                  <button class="position-cell" data-anchor="middle-right"></button>
+                  <button class="position-cell" data-anchor="bottom-left"></button>
+                  <button class="position-cell" data-anchor="bottom-center"></button>
+                  <button class="position-cell active" data-anchor="bottom-right"></button>
+                </div>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Size</span>
+              <div class="depth-slider-wrapper">
+                <input type="range" class="depth-slider" id="cameraSize" min="10" max="40" step="1" value="22">
+                <div class="depth-labels"><span>10%</span><span>40%</span></div>
+                <div class="depth-value" id="cameraSizeValue">22%</div>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Opacity</span>
+              <div class="depth-slider-wrapper">
+                <input type="range" class="depth-slider" id="cameraOpacity" min="30" max="100" step="1" value="100">
+                <div class="depth-labels"><span>30%</span><span>100%</span></div>
+                <div class="depth-value" id="cameraOpacityValue">100%</div>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Shape</span>
+              <div class="position-toggle">
+                <button class="position-btn" data-radius-preset="0">Square</button>
+                <button class="position-btn" data-radius-preset="18">Rounded</button>
+                <button class="position-btn active" data-radius-preset="50">Circle</button>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Corner radius</span>
+              <div class="depth-slider-wrapper">
+                <input type="range" class="depth-slider" id="cameraRadius" min="0" max="50" step="1" value="50">
+                <div class="depth-labels"><span>Square</span><span>Circle</span></div>
+                <div class="depth-value" id="cameraRadiusValue">50%</div>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <div class="camera-toggle-row">
+                <span class="zoom-control-label">Mirror</span>
+                <label class="toggle">
+                  <input type="checkbox" id="cameraMirror" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 

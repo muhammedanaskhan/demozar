@@ -1,6 +1,8 @@
 // State
 let state = {
   audioEnabled: true,
+  micEnabled: false,
+  cameraEnabled: false,
   format: 'webm',
   quality: 'high',
   watermarkEnabled: false,
@@ -24,6 +26,8 @@ const elements = {
   recTime: document.getElementById('recTime'),
   status: document.getElementById('status'),
   audioEnabled: document.getElementById('audioEnabled'),
+  micEnabled: document.getElementById('micEnabled'),
+  cameraEnabled: document.getElementById('cameraEnabled'),
   formatSelect: document.getElementById('formatSelect'),
   qualitySelect: document.getElementById('qualitySelect'),
   watermarkEnabled: document.getElementById('watermarkEnabled')
@@ -93,6 +97,16 @@ function bindEvents() {
     saveSettings();
   });
 
+  elements.micEnabled.addEventListener('change', (e) => {
+    state.micEnabled = e.target.checked;
+    saveSettings();
+  });
+
+  elements.cameraEnabled.addEventListener('change', (e) => {
+    state.cameraEnabled = e.target.checked;
+    saveSettings();
+  });
+
   elements.formatSelect.addEventListener('change', (e) => {
     state.format = e.target.value;
     saveSettings();
@@ -125,34 +139,24 @@ function bindEvents() {
 // Update UI based on state
 function updateUI() {
   elements.audioEnabled.checked = state.audioEnabled;
+  elements.micEnabled.checked = state.micEnabled;
+  elements.cameraEnabled.checked = state.cameraEnabled;
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
   elements.watermarkEnabled.checked = state.watermarkEnabled;
 }
 
-// Start recording
+// Start recording — the popup is just a launcher. The heavy lifting (camera/
+// mic permission, screen picker, MediaRecorder) happens in a pinned
+// recorder tab that we open here.
 async function startRecording() {
   try {
-    setStatus('Preparing...');
-
-    chrome.runtime.sendMessage({
-      type: 'START_RECORDING',
-      settings: {
-        audioEnabled: state.audioEnabled,
-        format: state.format,
-        quality: state.quality,
-        watermarkEnabled: state.watermarkEnabled
-      }
-    });
-
-    // Close popup after starting - user will click icon to stop
-    // Small delay to ensure message is sent
-    setTimeout(() => {
-      window.close();
-    }, 300);
-
+    setStatus('Opening recorder…');
+    await saveSettings();  // make sure the recorder tab reads the latest toggles
+    chrome.runtime.sendMessage({ type: 'OPEN_RECORDER' });
+    setTimeout(() => window.close(), 120);
   } catch (error) {
-    console.error('Error starting recording:', error);
+    console.error('Error opening recorder:', error);
     showError('Failed: ' + (error?.message || 'unknown error'));
   }
 }
