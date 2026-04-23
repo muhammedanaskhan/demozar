@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DaddyRecorder — Your cursor is the camera</title>
+  <meta name="description" content="DaddyRecorder automatically follows your cursor, zooms in, removes noise, and delivers studio-quality videos in minutes.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="../icons/icon48.png">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-container">
+      <a href="/" class="nav-logo">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 6L26 16L8 26V6Z" fill="#00F46E"/>
+        </svg>
+        <span>DaddyRecorder</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#use-cases" class="nav-link">Use Cases</a>
+        <a href="#pricing" class="nav-link">Pricing</a>
+        <div class="nav-dropdown">
+          <button class="nav-link">
+            Resources
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <a href="#" class="nav-link">Log in</a>
+        <a href="#" class="btn btn-primary">Download Free</a>
+      </div>
+
+      <button class="mobile-menu-btn" aria-label="Toggle menu">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M3 12H21M3 6H21M3 18H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-container">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="badge-dot"></span>
+          <span>Screen recording, reimagined</span>
+        </div>
+
+        <h1 class="hero-headline">
+          Your cursor<br>is the <span class="text-gradient">camera.</span>
+        </h1>
+
+        <p class="hero-subtext">
+          DaddyRecorder automatically zooms, cuts and enhances your screen recordings so you can focus on what matters.
+        </p>
+
+        <div class="hero-cta">
+          <a href="#" class="btn btn-primary btn-lg">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2"/>
+              <circle cx="8" cy="8" r="3" fill="currentColor"/>
+            </svg>
+            Start Recording — It's Free
+          </a>
+          <a href="#" class="btn btn-secondary btn-lg">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M6.5 5.5L11 8L6.5 10.5V5.5Z" fill="currentColor"/>
+            </svg>
+            Watch Demo
+          </a>
+        </div>
+
+        <div class="hero-features">
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="#00F46E" stroke-width="1.5"/>
+              <circle cx="8" cy="8" r="2" fill="#00F46E"/>
+            </svg>
+            <div class="feature-pill-text">
+              <span class="feature-pill-title">Auto-zoom</span>
+              <span class="feature-pill-desc">Follows attention</span>
+            </div>
+          </div>
+
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="#00F46E" stroke-width="1.5"/>
+              <path d="M5 8L7 10L11 6" stroke="#00F46E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="feature-pill-text">
+              <span class="feature-pill-title">Smart Edits</span>
+              <span class="feature-pill-desc">Cuts the noise</span>
+            </div>
+          </div>
+
+          <div class="feature-pill">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="#00F46E" stroke-width="1.5"/>
+              <path d="M8 5V8L10 10" stroke="#00F46E" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <div class="feature-pill-text">
+              <span class="feature-pill-title">Instant Export</span>
+              <span class="feature-pill-desc">Share in seconds</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-image">
+        <div class="hero-image-glow"></div>
+        <img src="assets/hero-app.png" alt="DaddyRecorder Interface" class="hero-screenshot">
+      </div>
+    </div>
+  </section>
+
+  <!-- Trusted By Section -->
+  <section class="trusted-by">
+    <div class="trusted-container">
+      <p class="trusted-text">Trusted by creators and teams at</p>
+      <div class="trusted-logos">
+        <div class="trusted-logo">
+          <svg height="18" viewBox="0 0 100 100" fill="currentColor">
+            <path d="M1.22541 61.5228c-.2225-.9485.90748-1.5459 1.59638-.857L39.3342 97.1782c.6889.6889.0915 1.8189-.857 1.5964C20.0515 94.4522 5.54779 79.9485 1.22541 61.5228ZM.00189135 46.8891c-.01764375.2833.08887215.5599.28957765.7606L52.3503 99.7085c.2007.2007.4773.3072.7606.2896 2.3692-.1476 4.6938-.46 6.9624-.9259.7645-.157 1.0301-1.0963.4782-1.6481L3.97671 40.8588c-.55186-.5765-1.49117-.2863-1.64812.4782-.46595 2.2686-.77823 4.5932-.92669 6.5765h-.00001ZM4.21093 29.7054c-.16649.3738-.08169.8106.20765 1.1l64.77602 64.776c.2894.2894.7262.3742 1.1.2077 1.7861-.7956 3.5171-1.6927 5.1855-2.684.5521-.328.6373-1.0867.1832-1.5765L8.5765 24.4365c-.4541-.4541-1.2485-.3689-1.5765.1832-.99132 1.6684-1.88843 3.3994-2.68407 5.1855v.0002Z"/>
+          </svg>
+          <span>Linear</span>
+        </div>
+
+        <div class="trusted-logo">
+          <svg height="18" viewBox="0 0 14 21" fill="currentColor">
+            <path d="M0 0H14V7H7L0 0ZM0 7H7L14 14H7V21L0 14V7Z"/>
+          </svg>
+          <span>Framer</span>
+        </div>
+
+        <div class="trusted-logo">
+          <svg height="18" viewBox="0 0 76 65" fill="currentColor">
+            <path d="M37.5274 0L75.0548 65H0L37.5274 0Z"/>
+          </svg>
+          <span>Vercel</span>
+        </div>
+
+        <div class="trusted-logo">
+          <svg height="14" viewBox="0 0 54 33" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M27 0c-7.2 0-11.7 3.6-13.5 10.8 2.7-3.6 5.85-4.95 9.45-4.05 2.054.513 3.522 2.004 5.147 3.653C30.744 13.09 33.808 16.2 40.5 16.2c7.2 0 11.7-3.6 13.5-10.8-2.7 3.6-5.85 4.95-9.45 4.05-2.054-.513-3.522-2.004-5.147-3.653C36.756 3.11 33.692 0 27 0zM13.5 16.2C6.3 16.2 1.8 19.8 0 27c2.7-3.6 5.85-4.95 9.45-4.05 2.054.514 3.522 2.004 5.147 3.653C17.244 29.29 20.308 32.4 27 32.4c7.2 0 11.7-3.6 13.5-10.8-2.7 3.6-5.85 4.95-9.45 4.05-2.054-.513-3.522-2.004-5.147-3.653C23.256 19.31 20.192 16.2 13.5 16.2z"/>
+          </svg>
+          <span>tailwindcss</span>
+        </div>
+
+        <div class="trusted-logo">
+          <svg height="18" viewBox="0 0 109 113" fill="none">
+            <path d="M63.7 110.3c-2.5 3.2-7.8 1.5-7.9-2.6l-1.5-67h51.5c4.6 0 7.2 5.3 4.3 8.9L63.7 110.3z" fill="currentColor"/>
+            <path d="M45.3 2.7c2.5-3.2 7.8-1.5 7.9 2.6l.7 67H2.5c-4.6 0-7.2-5.3-4.3-8.9L45.3 2.7z" fill="currentColor"/>
+          </svg>
+          <span>Supabase</span>
+        </div>
+
+        <div class="trusted-logo">
+          <svg height="20" viewBox="0 0 98 96" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M48.9 0C21.8 0 0 22 0 49.2c0 21.8 14 40.2 33.4 46.7 2.4.5 3.3-1 3.3-2.3v-8.2c-13.6 3-16.4-6.6-16.4-6.6-2.2-5.7-5.4-7.2-5.4-7.2-4.4-3 .3-3 .3-3 4.9.4 7.5 5 7.5 5 4.3 7.5 11.3 5.3 14 4 .5-3.2 1.7-5.3 3.1-6.6-10.8-1.2-22.2-5.4-22.2-24.3 0-5.4 1.9-9.8 5-13.2-.5-1.2-2.2-6.3.5-13 0 0 4.1-1.3 13.4 5a46.4 46.4 0 0 1 24.5 0c9.3-6.3 13.4-5 13.4-5 2.7 6.7 1 11.8.5 13 3.1 3.4 5 7.8 5 13.2 0 19-11.4 23-22.3 24.2 1.8 1.5 3.3 4.5 3.3 9v13.4c0 1.3.9 2.8 3.4 2.3 19.3-6.5 33.3-25 33.3-46.7C97.8 22 76 0 48.9 0z"/>
+          </svg>
+          <span>GitHub</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Focus Section - Before/After -->
+  <section class="focus-section">
+    <div class="focus-container">
+      <div class="focus-comparison">
+        <div class="comparison-item">
+          <img src="assets/before.png" alt="Raw Recording" class="comparison-img">
+          <span class="comparison-label">Raw Recording</span>
+        </div>
+        <div class="comparison-arrow">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="#00F46E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="comparison-item">
+          <img src="assets/after.png" alt="DaddyRecorder Result" class="comparison-img">
+          <span class="comparison-label comparison-label-brand">DaddyRecorder</span>
+        </div>
+      </div>
+
+      <div class="focus-content">
+        <span class="section-badge">FOCUS IS EVERYTHING</span>
+        <h2 class="section-headline">
+          Turn messy recordings<br>into <span class="text-gradient">clear stories.</span>
+        </h2>
+        <p class="section-desc">
+          We automatically follow your cursor, zoom in, remove pauses, and make your videos engaging to watch.
+        </p>
+        <ul class="check-list">
+          <li>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="10" fill="rgba(0,244,110,0.15)"/>
+              <path d="M6 10L9 13L14 7" stroke="#00F46E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Auto-zoom follows cursor
+          </li>
+          <li>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="10" fill="rgba(0,244,110,0.15)"/>
+              <path d="M6 10L9 13L14 7" stroke="#00F46E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Remove silence and filler
+          </li>
+          <li>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <circle cx="10" cy="10" r="10" fill="rgba(0,244,110,0.15)"/>
+              <path d="M6 10L9 13L14 7" stroke="#00F46E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Smooth, professional results
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features-section" id="features">
+    <div class="features-container">
+      <div class="features-header">
+        <span class="section-badge">BUILT FOR CREATORS</span>
+        <h2 class="section-headline">
+          Powerful features.<br><span class="text-gradient">Zero complexity.</span>
+        </h2>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="4"/>
+              <line x1="12" y1="2" x2="12" y2="4"/>
+              <line x1="12" y1="20" x2="12" y2="22"/>
+              <line x1="2" y1="12" x2="4" y2="12"/>
+              <line x1="20" y1="12" x2="22" y2="12"/>
+            </svg>
+          </div>
+          <h3 class="feature-title">Auto Zoom</h3>
+          <p class="feature-desc">Follows your cursor and zooms in on what matters.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+              <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+              <path d="M2 2l7.586 7.586"/>
+              <circle cx="11" cy="11" r="2"/>
+            </svg>
+          </div>
+          <h3 class="feature-title">Smart Edits</h3>
+          <p class="feature-desc">Cuts silence, filler words and unwanted parts automatically.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/>
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+          </div>
+          <h3 class="feature-title">Instant Sharing</h3>
+          <p class="feature-desc">Export in HD and share anywhere in seconds.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+          </div>
+          <h3 class="feature-title">Privacy First</h3>
+          <p class="feature-desc">Your recordings stay private and secure always.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Editor Section -->
+  <section class="editor-section">
+    <div class="editor-container">
+      <div class="editor-content">
+        <span class="section-badge">SIMPLE EDITOR</span>
+        <h2 class="section-headline">
+          Edit like<br>it's <span class="text-gradient">effortless.</span>
+        </h2>
+        <p class="section-desc">
+          Clean timeline. Easy controls. Everything you need, nothing you don't.
+        </p>
+        <a href="#" class="text-link">
+          Explore Editor
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+      </div>
+
+      <div class="editor-preview">
+        <div class="editor-mockup">
+          <div class="editor-toolbar">
+            <div class="editor-play">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M4 3L13 8L4 13V3Z"/>
+              </svg>
+            </div>
+            <span class="editor-time">00:05 / 00:29</span>
+            <div class="editor-progress">
+              <div class="editor-progress-fill"></div>
+              <div class="editor-progress-handle"></div>
+            </div>
+            <button class="btn btn-primary btn-sm">Export Video</button>
+          </div>
+          <div class="editor-timeline">
+            <div class="timeline-track">
+              <div class="timeline-clip"></div>
+              <div class="timeline-clip"></div>
+              <div class="timeline-clip"></div>
+              <div class="timeline-clip"></div>
+              <div class="timeline-clip"></div>
+            </div>
+            <div class="timeline-waveform"></div>
+          </div>
+          <div class="editor-tools">
+            <button class="tool-btn">✂</button>
+            <span class="tool-divider">·</span>
+            <button class="tool-btn">⊞</button>
+            <span class="tool-divider">·</span>
+            <button class="tool-btn">⊟</button>
+            <button class="tool-btn">🗑</button>
+            <button class="tool-btn">📋</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonials Section -->
+  <section class="testimonials-section">
+    <div class="testimonials-container">
+      <div class="testimonials-header">
+        <span class="section-badge">LOVED BY USERS</span>
+        <h2 class="section-headline">
+          Creators love the <span class="text-gradient">focus.</span>
+        </h2>
+      </div>
+
+      <div class="testimonials-grid">
+        <div class="testimonial-card">
+          <div class="testimonial-avatar">
+            <img src="https://i.pravatar.cc/80?img=11" alt="Arvid Kahl">
+          </div>
+          <p class="testimonial-quote">"DaddyRecorder saves me hours of editing. The auto-zoom is absolutely magic."</p>
+          <div class="testimonial-author">
+            <span class="author-name">Arvid Kahl</span>
+            <span class="author-title">Indie Maker</span>
+          </div>
+          <div class="testimonial-stars">★★★★★</div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-avatar">
+            <img src="https://i.pravatar.cc/80?img=32" alt="Sarah Dayan">
+          </div>
+          <p class="testimonial-quote">"Finally, a screen recorder that actually understands what I'm trying to show."</p>
+          <div class="testimonial-author">
+            <span class="author-name">Sarah Dayan</span>
+            <span class="author-title">YouTuber</span>
+          </div>
+          <div class="testimonial-stars">★★★★★</div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-avatar">
+            <img src="https://i.pravatar.cc/80?img=68" alt="Ali Abdaal">
+          </div>
+          <p class="testimonial-quote">"The best recording tool for tutorials and product walkthroughs."</p>
+          <div class="testimonial-author">
+            <span class="author-name">Ali Abdaal</span>
+            <span class="author-title">Creator</span>
+          </div>
+          <div class="testimonial-stars">★★★★★</div>
+        </div>
+      </div>
+
+      <div class="testimonials-nav">
+        <button class="nav-arrow nav-prev">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M12 15L7 10L12 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="nav-arrow nav-next">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M8 5L13 10L8 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="cta-container">
+      <div class="cta-card">
+        <div class="cta-icon">
+          <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
+            <path d="M8 6L26 16L8 26V6Z" fill="#00F46E"/>
+          </svg>
+        </div>
+        <div class="cta-content">
+          <h2 class="cta-headline">
+            Ready to record<br>with <span class="text-gradient">focus?</span>
+          </h2>
+          <p class="cta-desc">Start recording in seconds. It's free.</p>
+          <div class="cta-buttons">
+            <a href="#" class="btn btn-primary btn-lg">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2V14M8 2L4 6M8 2L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Download for macOS
+            </a>
+            <a href="#" class="text-link">
+              Other platforms
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+          </div>
+          <p class="cta-platforms">macOS 12+ · Windows 10+ · Linux (Soon)</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div class="footer-brand">
+        <a href="/" class="footer-logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <path d="M8 6L26 16L8 26V6Z" fill="#00F46E"/>
+          </svg>
+          <span>DaddyRecorder</span>
+        </a>
+        <p class="footer-tagline">Screen recording, reimagined.</p>
+      </div>
+
+      <div class="footer-links">
+        <div class="footer-col">
+          <h5>Product</h5>
+          <a href="#">Features</a>
+          <a href="#">Pricing</a>
+          <a href="#">Changelog</a>
+          <a href="#">Download</a>
+        </div>
+        <div class="footer-col">
+          <h5>Resources</h5>
+          <a href="#">Documentation</a>
+          <a href="#">Tutorials</a>
+          <a href="#">Blog</a>
+          <a href="#">Support</a>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <a href="#">About</a>
+          <a href="#">Careers</a>
+          <a href="#">Contact</a>
+          <a href="#">Press</a>
+        </div>
+        <div class="footer-col">
+          <h5>Legal</h5>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">License</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>&copy; 2024 DaddyRecorder. All rights reserved.</p>
+      <div class="footer-social">
+        <a href="#" aria-label="Twitter">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        </a>
+        <a href="#" aria-label="GitHub">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        </a>
+        <a href="#" aria-label="Discord">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

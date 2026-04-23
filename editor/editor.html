@@ -711,7 +711,10 @@
         <div class="export-option">
           <label>Quality</label>
           <div class="quality-slider">
-            <input type="range" id="exportQuality" min="1" max="100" value="80">
+            <div class="slider-track">
+              <div class="slider-fill" id="qualityFill" style="width: 80%"></div>
+              <input type="range" id="exportQuality" min="1" max="100" value="80">
+            </div>
             <div class="quality-labels">
               <span>Smaller file size</span>
               <span>Higher quality</span>

@@ -124,6 +124,7 @@ function setStatus(msg, tone = '') {
     window.addEventListener('beforeunload', () => {
       cleanup(/* keepStream */ false);
     });
+
   } catch (e) {
     console.error('[Recorder] boot failed', e);
     setStatus('Recorder failed to initialize: ' + (e?.message || e), 'err');
@@ -410,7 +411,7 @@ async function startRecording() {
   el.startBtn.classList.add('hidden');
   el.pauseBtn.classList.remove('hidden');
   el.stopBtn.classList.remove('hidden');
-  el.subtitle.textContent = 'Recording. Come back to this tab or click the Demozar icon to stop.';
+  el.subtitle.textContent = 'Recording. Come back to this tab or click the DaddyRecorder icon to stop.';
   el.screenStatus.textContent = 'Recording';
   setStatus('Recording started', 'ok');
   startTimer();

@@ -1,0 +1,35 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17FEA0"/>
+      <stop offset="100%" stop-color="#01FD48"/>
+    </linearGradient>
+    <linearGradient id="shadowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0AA868"/>
+      <stop offset="100%" stop-color="#027A26"/>
+    </linearGradient>
+    <linearGradient id="highlightGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#B6FFD9"/>
+      <stop offset="100%" stop-color="#6CFFA3"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+
+  <!-- Play button - larger, centered in 128x128 -->
+  <g filter="url(#shadow)">
+    <!-- Shadow/depth layer -->
+    <path d="M 108 64 L 100 72 L 32 112 L 32 102 Z" fill="url(#shadowGrad)"/>
+    <path d="M 32 102 L 32 112 L 24 106 L 24 96 Z" fill="url(#shadowGrad)"/>
+
+    <!-- Main face -->
+    <path d="M 24 22 L 100 64 L 24 96 Z" fill="url(#mainGrad)"/>
+
+    <!-- Top highlight -->
+    <path d="M 24 22 L 32 16 L 108 58 L 100 64 Z" fill="url(#highlightGrad)"/>
+
+    <!-- Left highlight -->
+    <path d="M 24 22 L 32 16 L 32 102 L 24 96 Z" fill="url(#highlightGrad)"/>
+  </g>
+</svg>

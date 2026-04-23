@@ -100,12 +100,14 @@ function bindEvents() {
   elements.micToggle.addEventListener('click', () => {
     state.micEnabled = !state.micEnabled;
     elements.micToggle.setAttribute('aria-pressed', String(state.micEnabled));
+    updateSourceBadge(elements.micToggle, state.micEnabled);
     saveSettings();
   });
 
   elements.cameraToggle.addEventListener('click', () => {
     state.cameraEnabled = !state.cameraEnabled;
     elements.cameraToggle.setAttribute('aria-pressed', String(state.cameraEnabled));
+    updateSourceBadge(elements.cameraToggle, state.cameraEnabled);
     saveSettings();
   });
 
@@ -138,11 +140,21 @@ function bindEvents() {
   });
 }
 
+// Update source card badge text
+function updateSourceBadge(element, enabled) {
+  const badge = element.querySelector('.source-badge');
+  if (badge) {
+    badge.textContent = enabled ? 'ON' : 'OFF';
+  }
+}
+
 // Update UI based on state
 function updateUI() {
   elements.audioEnabled.checked = state.audioEnabled;
   elements.micToggle.setAttribute('aria-pressed', String(state.micEnabled));
   elements.cameraToggle.setAttribute('aria-pressed', String(state.cameraEnabled));
+  updateSourceBadge(elements.micToggle, state.micEnabled);
+  updateSourceBadge(elements.cameraToggle, state.cameraEnabled);
   elements.formatSelect.value = state.format;
   elements.qualitySelect.value = state.quality;
   elements.watermarkEnabled.checked = state.watermarkEnabled;

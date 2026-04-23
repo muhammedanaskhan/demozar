@@ -670,6 +670,7 @@ const elements = {
   clickForce: document.getElementById('clickForce'),
   exportResolution: document.getElementById('exportResolution'),
   exportQuality: document.getElementById('exportQuality'),
+  qualityFill: document.getElementById('qualityFill'),
   exportFormat: document.getElementById('exportFormat'),
   // Zoom controls
   zoomPanel: document.getElementById('zoomPanel'),
@@ -1684,6 +1685,12 @@ function bindEvents() {
   });
 
   elements.exportFinalBtn.addEventListener('click', exportVideo);
+
+  // Quality slider fill update
+  elements.exportQuality.addEventListener('input', () => {
+    const value = elements.exportQuality.value;
+    elements.qualityFill.style.width = value + '%';
+  });
 
   // Timeline tools
   elements.splitBtn.addEventListener('click', splitAtPlayhead);

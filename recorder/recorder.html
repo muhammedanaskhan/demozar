@@ -6,6 +6,67 @@
   <link rel="stylesheet" href="recorder.css">
 </head>
 <body>
+  <div class="ambient-bg">
+    <!-- Flowing wave lines - inspired by motion/audio -->
+    <svg class="wave-lines" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" fill="none">
+      <defs>
+        <linearGradient id="waveGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#22c55e" stop-opacity="0.5"/>
+          <stop offset="50%" stop-color="#10b981" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.2"/>
+        </linearGradient>
+        <linearGradient id="waveGrad2" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#14b8a6" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="#34d399" stop-opacity="0.25"/>
+        </linearGradient>
+        <linearGradient id="waveGrad3" x1="100%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#4ade80" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#16a34a" stop-opacity="0.2"/>
+        </linearGradient>
+      </defs>
+      <!-- Wave Group 1 - Pink to Orange flow -->
+      <g class="wave-group wave-group-1">
+        <path d="M-100,600 Q200,400 400,500 T800,450 T1200,550 T1600,400" stroke="url(#waveGrad1)" stroke-width="1.5" fill="none"/>
+        <path d="M-100,620 Q220,420 420,520 T820,470 T1220,570 T1600,420" stroke="url(#waveGrad1)" stroke-width="1.2" fill="none"/>
+        <path d="M-100,640 Q240,440 440,540 T840,490 T1240,590 T1600,440" stroke="url(#waveGrad1)" stroke-width="1" fill="none"/>
+        <path d="M-100,660 Q260,460 460,560 T860,510 T1260,610 T1600,460" stroke="url(#waveGrad1)" stroke-width="0.8" fill="none"/>
+        <path d="M-100,680 Q280,480 480,580 T880,530 T1280,630 T1600,480" stroke="url(#waveGrad1)" stroke-width="0.6" fill="none"/>
+      </g>
+      <!-- Wave Group 2 - Purple to Cyan flow -->
+      <g class="wave-group wave-group-2">
+        <path d="M-100,700 Q300,500 500,600 T900,550 T1300,650 T1600,500" stroke="url(#waveGrad2)" stroke-width="1.5" fill="none"/>
+        <path d="M-100,720 Q320,520 520,620 T920,570 T1320,670 T1600,520" stroke="url(#waveGrad2)" stroke-width="1.2" fill="none"/>
+        <path d="M-100,740 Q340,540 540,640 T940,590 T1340,690 T1600,540" stroke="url(#waveGrad2)" stroke-width="1" fill="none"/>
+        <path d="M-100,760 Q360,560 560,660 T960,610 T1360,710 T1600,560" stroke="url(#waveGrad2)" stroke-width="0.8" fill="none"/>
+      </g>
+      <!-- Wave Group 3 - Green accent -->
+      <g class="wave-group wave-group-3">
+        <path d="M-100,780 Q400,600 600,700 T1000,650 T1400,750 T1600,600" stroke="url(#waveGrad3)" stroke-width="1.2" fill="none"/>
+        <path d="M-100,800 Q420,620 620,720 T1020,670 T1420,770 T1600,620" stroke="url(#waveGrad3)" stroke-width="1" fill="none"/>
+        <path d="M-100,820 Q440,640 640,740 T1040,690 T1440,790 T1600,640" stroke="url(#waveGrad3)" stroke-width="0.8" fill="none"/>
+      </g>
+    </svg>
+
+    <!-- Soft glow layer -->
+    <div class="glow-layer"></div>
+
+    <!-- Audio visualizer bars - subtle recording feel -->
+    <div class="audio-visualizer">
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+      <div class="viz-bar"></div>
+    </div>
+
+  </div>
   <div class="shell">
     <header class="header">
       <div class="logo">
@@ -113,7 +174,7 @@
       <div class="status-bar" id="statusBar"></div>
 
       <p class="tip">
-        Keep this tab open while recording. Click the Demozar icon or come back here to stop.
+        Keep this tab open while recording. Click the DaddyRecorder icon or come back here to stop.
       </p>
     </main>
 
