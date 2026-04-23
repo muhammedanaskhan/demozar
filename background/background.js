@@ -90,8 +90,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'CLICK_POSITION':
+      console.log('[Background] CLICK_POSITION received:', message.data);
       if (recordingState.isRecording && !recordingState.isPaused) {
         clickData.push(message.data);
+        console.log('[Background] ✓ Click stored. Total clicks:', clickData.length);
+      } else {
+        console.log('[Background] ✗ Click ignored - recording:', recordingState.isRecording, 'paused:', recordingState.isPaused);
       }
       return false;
 
@@ -177,24 +181,32 @@ async function updateSourceTabFromActive() {
 
 async function injectCursorTracker() {
   const tabId = recordingState.sourceTabId;
-  if (!tabId) return;
+  console.log('[Background] injectCursorTracker() called, sourceTabId:', tabId);
+  if (!tabId) {
+    console.warn('[Background] No sourceTabId — cannot inject cursor tracker');
+    return;
+  }
   try {
     const tab = await chrome.tabs.get(tabId);
     const url = tab?.url || '';
+    console.log('[Background] Attempting to inject into tab:', tabId, 'URL:', url);
     if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
         url.startsWith('about:') || url.startsWith('edge://')) {
-      console.log('[Background] Skipping cursor tracker for restricted URL:', url);
+      console.log('[Background] ✗ Skipping cursor tracker for restricted URL:', url);
       return;
     }
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ['content/cursorTracker.js']
     });
+    console.log('[Background] ✓ Script injected, waiting 50ms...');
     await new Promise(r => setTimeout(r, 50));
     await chrome.tabs.sendMessage(tabId, { type: 'START_CURSOR_TRACKING' });
+    console.log('[Background] ✓ START_CURSOR_TRACKING sent');
     await chrome.tabs.sendMessage(tabId, { type: 'RESET_CURSOR_TIME' });
+    console.log('[Background] ✓ Cursor tracker fully initialized');
   } catch (e) {
-    console.warn('[Background] Cursor tracker injection failed:', e);
+    console.warn('[Background] ✗ Cursor tracker injection failed:', e);
   }
 }
 
@@ -255,6 +267,7 @@ async function handleRecordingError(error) {
 }
 
 async function storeRecording(blob, format, webcamBlob, webcamFormat) {
+  console.log('[Background] Storing recording — cursorData:', cursorData.length, 'clickData:', clickData.length);
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('DaddyRecorder', 1);
     request.onerror = () => reject(request.error);
@@ -278,8 +291,10 @@ async function storeRecording(blob, format, webcamBlob, webcamFormat) {
         webcamFormat: webcamFormat || null,
         cameraSettings: webcamBlob ? defaultCameraSettings() : null
       };
+      console.log('[Background] Saving to IndexedDB — clickData items:', data.clickData.length, data.clickData);
       const put = store.put(data, 'latest');
       put.onsuccess = () => {
+        console.log('[Background] ✓ Recording saved successfully');
         cursorData = [];
         clickData = [];
         recordingState.sourceTabId = null;

@@ -417,6 +417,8 @@ async function startRecording() {
   startTimer();
 
   chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+  // Give cursor tracker time to inject and start before switching focus
+  await new Promise(r => setTimeout(r, 200));
   // Hand focus back to the tab the user was on before they clicked Record.
   chrome.runtime.sendMessage({ type: 'FOCUS_SOURCE_TAB' });
 }

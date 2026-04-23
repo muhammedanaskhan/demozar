@@ -120,14 +120,19 @@ function getZoomAtTime(time) {
 function generateZoomsFromClicks({
   trailSec = 2.2,       // how long the zoom stays in after the last click in a burst
   leadIn = 0.35,        // how long before the first click the zoom starts ramping in
-  burstGap = 2.5,       // clicks more than this apart start a new burst
-  bridgeGap = 1.4,      // adjacent bursts closer than this merge into one zoom
+  burstGap = 5.0,       // clicks more than this apart start a new burst (was 2.5)
+  bridgeGap = 2.0,      // adjacent bursts closer than this merge into one zoom
   depth = 1.35,         // slightly gentler than manual zooms so auto feels natural
   minDuration = 0.8,    // skip degenerate segments
-  minClicksPerBurst = 2 // Cursorful's rule — single isolated clicks don't zoom
+  minClicksPerBurst = 1 // create zoom on any click (was 2)
 } = {}) {
+  console.log('[Editor] generateZoomsFromClicks called, clickData:', state.clickData?.length || 0);
   const clicks = (state.clickData || []).slice().sort((a, b) => a.time - b.time);
-  if (clicks.length === 0) return 0;
+  if (clicks.length === 0) {
+    console.log('[Editor] No clicks found in clickData');
+    return 0;
+  }
+  console.log('[Editor] Processing', clicks.length, 'clicks:', clicks);
 
   // Pass 1: group clicks into bursts. Track click count so we can filter
   // out lone clicks — those are the main driver of motion sickness in
@@ -144,11 +149,16 @@ function generateZoomsFromClicks({
     }
   }
   bursts.push(cur);
+  console.log('[Editor] Detected bursts:', bursts);
 
   // Drop bursts that don't meet the multi-click threshold. A single
   // stray click isn't a "demo moment" worth zooming on.
   const zoomableBursts = bursts.filter(b => b.count >= minClicksPerBurst);
-  if (zoomableBursts.length === 0) return 0;
+  console.log('[Editor] Zoomable bursts (>=' + minClicksPerBurst + ' clicks):', zoomableBursts);
+  if (zoomableBursts.length === 0) {
+    console.log('[Editor] No valid bursts — all clicks were isolated (single clicks with >' + burstGap + 's gap)');
+    return 0;
+  }
 
   // Pass 2: expand each burst into a tentative zoom window
   // [first - leadIn, last + trailSec], then merge adjacent windows whose
@@ -1711,9 +1721,16 @@ function bindEvents() {
   const autoZoomBtn = document.getElementById('autoZoomClicksBtn');
   if (autoZoomBtn) {
     autoZoomBtn.addEventListener('click', () => {
+      const clickCount = (state.clickData || []).length;
       const n = generateZoomsFromClicks();
       if (n === 0) {
-        alert('No recorded clicks found in this recording.');
+        if (clickCount === 0) {
+          alert('No recorded clicks found.\n\nClick tracking only works when recording a browser tab. For window/monitor recordings, use manual zoom markers.');
+        } else {
+          alert(`Found ${clickCount} click(s), but no zoom segments created.\n\nThis shouldn't happen — please check the console for details.`);
+        }
+      } else {
+        console.log(`[Editor] Created ${n} auto-zoom segment(s) from ${clickCount} clicks`);
       }
     });
   }

@@ -60,19 +60,36 @@
   let lastClickSent = 0;
   const CLICK_DEBOUNCE_MS = 100;
 
+  let clickCount = 0;
+
   function handleClick(e) {
-    if (!isTracking) return;
-    if (e.button !== 0) return; // primary button only
+    if (!isTracking) {
+      console.log('[DaddyRecorder] Click ignored - not tracking');
+      return;
+    }
+    if (e.button !== 0) {
+      console.log('[DaddyRecorder] Click ignored - not primary button:', e.button);
+      return;
+    }
     const now = Date.now();
-    if (now - lastClickSent < CLICK_DEBOUNCE_MS) return;
+    if (now - lastClickSent < CLICK_DEBOUNCE_MS) {
+      console.log('[DaddyRecorder] Click ignored - debounce');
+      return;
+    }
     lastClickSent = now;
     const time = (now - startTime) / 1000;
     const x = e.clientX / window.innerWidth;
     const y = e.clientY / window.innerHeight;
+    clickCount++;
+    console.log(`[DaddyRecorder] 🖱️ CLICK #${clickCount} captured at time=${time.toFixed(2)}s, pos=(${x.toFixed(3)}, ${y.toFixed(3)})`);
     chrome.runtime.sendMessage({
       type: 'CLICK_POSITION',
       data: { time, x, y }
-    }).catch(() => {});
+    }).then(() => {
+      console.log(`[DaddyRecorder] ✓ Click #${clickCount} sent to background`);
+    }).catch((err) => {
+      console.error(`[DaddyRecorder] ✗ Click #${clickCount} FAILED to send:`, err);
+    });
   }
 
   // Throttle to ~30fps to avoid too much data
@@ -109,5 +126,17 @@
 
   // Auto-start if already recording (in case message was missed)
   // This helps if the script loads after START_CURSOR_TRACKING was sent
-  console.log('[DaddyRecorder] Cursor tracker ready and waiting for START_CURSOR_TRACKING message');
+  console.log('[DaddyRecorder] Cursor tracker ready, checking if recording is active...');
+
+  // Query background to check if recording is in progress
+  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((state) => {
+    if (state && state.isRecording && !state.isPaused && !isTracking) {
+      console.log('[DaddyRecorder] Recording already active — auto-starting tracker');
+      startTracking();
+    } else {
+      console.log('[DaddyRecorder] Recording state:', state);
+    }
+  }).catch((err) => {
+    console.log('[DaddyRecorder] Could not check recording state:', err);
+  });
 })();
