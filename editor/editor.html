@@ -61,7 +61,14 @@
               </div>
             </div>
             <div class="video-container" id="videoContainer">
-              <video id="videoPlayer" class="video-player"></video>
+              <!-- Hidden source <video>: provides decoded frames + audio + currentTime.
+                   Visual rendering is done by previewCanvas (see editor.js renderFrame). -->
+              <video id="videoPlayer" class="video-player-hidden" playsinline></video>
+              <!-- Single canvas. Dimensions = output (e.g. 1920×1080) regardless
+                   of mode. CSS scales it to fit the wrapper. Always renders
+                   the final cropped output — handles for adjusting crop live
+                   in the right sidebar (cropMiniPreview). -->
+              <canvas id="previewCanvas" class="preview-canvas"></canvas>
               <div class="webcam-bubble hidden" id="webcamBubble">
                 <video id="webcamPlayer" class="webcam-video" muted playsinline></video>
                 <div class="webcam-resize-handle" id="webcamResizeHandle" title="Drag to resize">
@@ -116,6 +123,14 @@
               <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>
             </svg>
             <span>Auto-zoom clicks</span>
+          </button>
+          <!-- Add Crop — creates a crop segment at the playhead, like Add Zoom. -->
+          <button class="timeline-btn zoom-btn" id="addCropBtn" title="Add a crop segment at the playhead">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
+              <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
+            </svg>
+            <span>Add Crop</span>
           </button>
           <div class="toolbar-divider"></div>
           <!-- Split at playhead -->
@@ -211,6 +226,18 @@
               <div class="timeline-zooms" id="timelineZooms">
                 <!-- Zoom segments will be rendered dynamically -->
               </div>
+            </div>
+          </div>
+          <!-- Crop segments track — each block is a crop region active during its time range. -->
+          <div class="timeline-track-row crop-track">
+            <div class="track-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
+                <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
+              </svg>
+            </div>
+            <div class="timeline-zoom-wrapper">
+              <div class="timeline-crops" id="timelineCrops"></div>
             </div>
           </div>
           <!-- Camera hide segments track -->
@@ -492,23 +519,123 @@
           </div>
         </div>
 
+        <!-- Crop Panel — segment-based.
+             Crop is timeline data: each segment owns a camera that's active
+             for its [start, end) time range. Outside any segment, the
+             effective camera is the full-screen default. Composes with
+             zoom segments (zoom sub-rects inside the active camera). -->
+        <div class="crop-panel" id="cropPanel">
+          <!-- Empty state: shown when no segment is selected. -->
+          <div class="zoom-empty-state" id="cropEmptyState">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
+              <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
+            </svg>
+            <p>No crop selected.<br>Click <strong>Add Crop</strong> on the timeline, or click a crop segment to edit it.</p>
+          </div>
+
+          <!-- Selected-segment editor. Shown when state.selectedCropId is set. -->
+          <div id="cropSegmentEditor" class="hidden">
+            <p class="crop-hint">Drag the handles on the thumbnail below to reframe this crop segment. The main preview shows the final cropped output. Aspect-locked — no black bars in the export.</p>
+
+            <!-- Mini source preview with crop handles. The <video> mirrors the
+                 main video's currentTime so the user sees what they're cropping
+                 at the current playhead moment. -->
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Crop area</span>
+              <div class="crop-mini-preview" id="cropMiniPreview">
+                <video id="cropMiniVideo" muted playsinline></video>
+                <div class="crop-overlay" id="cropOverlay">
+                  <div class="crop-rect" id="cropRect">
+                    <span class="crop-handle crop-handle-corner crop-handle-tl" data-handle="tl"></span>
+                    <span class="crop-handle crop-handle-corner crop-handle-tr" data-handle="tr"></span>
+                    <span class="crop-handle crop-handle-corner crop-handle-bl" data-handle="bl"></span>
+                    <span class="crop-handle crop-handle-corner crop-handle-br" data-handle="br"></span>
+                    <span class="crop-handle crop-handle-edge crop-handle-t" data-handle="t"></span>
+                    <span class="crop-handle crop-handle-edge crop-handle-b" data-handle="b"></span>
+                    <span class="crop-handle crop-handle-edge crop-handle-l" data-handle="l"></span>
+                    <span class="crop-handle crop-handle-edge crop-handle-r" data-handle="r"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Camera presets</span>
+              <div class="crop-preset-btns">
+                <button class="crop-preset-btn" id="cropResetCamera" title="Reset to a centered, max-fit rectangle for the chosen output aspect">Reset</button>
+                <button class="crop-preset-btn" id="cropFullscreen" title="Camera = entire screen (max-fit, includes menu bar and dock)">Fullscreen</button>
+                <button class="crop-preset-btn" id="cropHideMenuBar" title="Inset the top of the camera by ~4.5% to hide a Mac menu bar">Hide menu bar</button>
+                <button class="crop-preset-btn" id="cropHideDock" title="Inset the bottom of the camera by ~7% to hide a Mac dock">Hide dock</button>
+              </div>
+            </div>
+
+            <div class="zoom-control-group">
+              <span class="zoom-control-label">Camera (% of source)</span>
+              <div class="crop-inset-grid">
+                <div class="crop-inset-row">
+                  <label class="crop-inset-item">
+                    <span>X</span>
+                    <input type="number" class="crop-inset-input" id="cameraInputX" min="0" max="100" step="0.1">
+                  </label>
+                  <label class="crop-inset-item">
+                    <span>Y</span>
+                    <input type="number" class="crop-inset-input" id="cameraInputY" min="0" max="100" step="0.1">
+                  </label>
+                </div>
+                <div class="crop-inset-row">
+                  <label class="crop-inset-item">
+                    <span>W</span>
+                    <input type="number" class="crop-inset-input" id="cameraInputW" min="5" max="100" step="0.1">
+                  </label>
+                  <label class="crop-inset-item">
+                    <span>H</span>
+                    <input type="number" class="crop-inset-input" id="cameraInputH" min="5" max="100" step="0.1">
+                  </label>
+                </div>
+              </div>
+              <p class="crop-hint" style="margin-top: 8px;">W and H stay aspect-locked to the output. Edit one and the other follows.</p>
+            </div>
+
+            <button class="delete-zoom-btn" id="deleteCropBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Delete Crop Segment
+            </button>
+          </div>
+        </div>
+
         <!-- Settings Panel -->
         <div class="settings-panel" id="settingsPanel">
-          <!-- Aspect Ratio -->
+          <!-- Output (global): aspect + height drive the output canvas dims
+               and the aspect lock that every crop segment is constrained to. -->
           <div class="setting-group">
-            <label class="setting-label">Aspect ratio</label>
-            <select class="setting-select" id="aspectRatio">
-              <option value="native">Native</option>
-              <option value="21:9">21:9</option>
+            <label class="setting-label">Output aspect</label>
+            <select class="setting-select" id="outputAspectSelect">
               <option value="16:9">16:9</option>
-              <option value="16:10">16:10</option>
-              <option value="3:2">3:2</option>
-              <option value="4:3">4:3</option>
-              <option value="1:1">1:1</option>
-              <option value="3:4">3:4</option>
-              <option value="2:3">2:3</option>
-              <option value="10:16">10:16</option>
               <option value="9:16">9:16</option>
+              <option value="4:3">4:3</option>
+              <option value="3:4">3:4</option>
+              <option value="1:1">1:1</option>
+              <option value="21:9">21:9</option>
+              <option value="3:2">3:2</option>
+              <option value="2:3">2:3</option>
+              <option value="16:10">16:10</option>
+              <option value="10:16">10:16</option>
+            </select>
+            <p class="crop-output-readout" id="cropOutputReadout">1920 × 1080</p>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">Output height</label>
+            <select class="setting-select" id="outputHeightSelect">
+              <option value="2160">2160p (4K)</option>
+              <option value="1440">1440p</option>
+              <option value="1080" selected>1080p</option>
+              <option value="720">720p</option>
+              <option value="480">480p</option>
             </select>
           </div>
 
@@ -568,27 +695,6 @@
                 <option value="moderate" selected>Moderate</option>
                 <option value="heavy">Heavy</option>
               </select>
-            </div>
-          </div>
-
-          <!-- Crop / System UI -->
-          <div class="setting-group">
-            <label class="setting-label">Crop</label>
-            <div class="setting-toggles">
-              <label class="toggle-row">
-                <span>Hide menu bar</span>
-                <label class="toggle">
-                  <input type="checkbox" id="hideMenuBar">
-                  <span class="toggle-slider"></span>
-                </label>
-              </label>
-              <label class="toggle-row">
-                <span>Hide dock</span>
-                <label class="toggle">
-                  <input type="checkbox" id="hideDock">
-                  <span class="toggle-slider"></span>
-                </label>
-              </label>
             </div>
           </div>
 

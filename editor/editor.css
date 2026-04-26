@@ -210,40 +210,35 @@ body {
   max-width: 100%;
 }
 
+/* Legacy DOM-level background. The canvas paints the output background now,
+   so this layer must stay hidden — otherwise it shows through any wrapper
+   margin around the canvas and you get two backgrounds visible at once. */
 .preview-background {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  z-index: 0;
+  display: none;
 }
 
+/* The preview-frame and video-container are layout pass-throughs now: the
+   canvas fills the entire preview-wrapper, edge to edge, and IS the output. */
 .preview-frame {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  max-width: 90%;
-  max-height: 90%;
-  width: fit-content;
-  height: fit-content;
-  overflow: hidden;
-  border-radius: 8px;
+  align-items: stretch;
+  justify-content: stretch;
+  width: 100%;
+  height: 100%;
+  overflow: visible;  /* let webcam bubble extend into bg padding area */
+  border-radius: 0;
 }
 
-/* Container for video that clips zoom overflow */
 .video-container {
   position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  /* Container takes size from video */
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: visible;  /* same reason — bubble may sit in canvas padding */
+  border-radius: 0;
+  display: block;
 }
 
 /* Webcam bubble overlay — sits on top of the screen video.
@@ -401,33 +396,125 @@ body {
   opacity: 0.9;
 }
 
-.video-player {
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 50vh;
-  background: #000;
-  border-radius: 0;
-  /* Remove object-fit to allow proper zoom transforms */
-  /* will-change for smooth animations */
-  will-change: transform, transform-origin;
+/* Source <video> stays in DOM for audio + currentTime + timeupdate, but is
+   not visible — previewCanvas paints the actual frames. Kept at 1×1 so the
+   browser still decodes; display:none on Chrome can pause some media activity. */
+.video-player-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  left: -9999px;
+  top: -9999px;
 }
 
-/* When minimal frame is shown, video container has no top radius */
+/* Preview canvas: backing buffer = state.output dims (e.g. 1920×1080).
+   CSS scales it to fit the wrapper. object-fit-like behavior via width/height. */
+.preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 75vh;
+  background: transparent;
+  border-radius: 0;
+}
+
+/* When the minimal frame chrome is shown, round only the bottom corners. */
 .minimal-frame + .video-container {
   border-radius: 0 0 8px 8px;
 }
-
-.minimal-frame + .video-container .video-player {
+.minimal-frame + .video-container .preview-canvas {
   border-radius: 0 0 8px 8px;
 }
 
-/* Constrain video more in portrait modes */
-.preview-wrapper[data-aspect="3:4"] .video-player,
-.preview-wrapper[data-aspect="2:3"] .video-player,
-.preview-wrapper[data-aspect="10:16"] .video-player,
-.preview-wrapper[data-aspect="9:16"] .video-player {
+/* Crop overlay: lives inside the sidebar mini-preview now (NOT the main
+   canvas). Filled to the mini-preview box so handles align with the source
+   video frame inside it. */
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.crop-overlay[hidden] { display: none; }
+
+/* Mini source preview in the Crop sidebar panel.
+   Aspect-ratio is set inline in JS once source dims are known (so the
+   <video> fills the box edge-to-edge with no letterboxing — overlay coords
+   then correspond 1:1 with source-normalized space). */
+.crop-mini-preview {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.crop-mini-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.crop-rect {
+  position: absolute;
+  pointer-events: auto;
+  cursor: move;
+  /* Position is set inline in JS as %, derived from state.camera. */
+  border: 2px solid rgba(23, 254, 160, 0.95);  /* DaddyRecorder brand green */
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.55),  /* dim everything outside */
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  box-sizing: border-box;
+  /* Thirds-style guide grid */
+  background-image:
+    linear-gradient(to right,  rgba(255,255,255,0.18) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.18) 1px, transparent 1px);
+  background-size: calc(100% / 3) 100%, 100% calc(100% / 3);
+  background-position: 33.333% 0, 0 33.333%;
+}
+
+/* 8 handles: 4 corners + 4 edges. */
+.crop-handle {
+  position: absolute;
+  pointer-events: auto;
+  background: #fff;
+  border: 2px solid rgba(23, 254, 160, 0.95);  /* match crop-rect border */
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+/* Corner handles — squares with rounded corners, drag for diagonal resize. */
+.crop-handle-corner {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+.crop-handle-tl { top: -8px; left:  -8px; cursor: nwse-resize; }
+.crop-handle-tr { top: -8px; right: -8px; cursor: nesw-resize; }
+.crop-handle-bl { bottom: -8px; left:  -8px; cursor: nesw-resize; }
+.crop-handle-br { bottom: -8px; right: -8px; cursor: nwse-resize; }
+
+/* Edge handles — pills, sized along their edge. */
+.crop-handle-edge {
+  width: 28px;
+  height: 8px;
+  border-radius: 4px;
+}
+.crop-handle-t { top: -5px;    left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.crop-handle-b { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+.crop-handle-l { left: -5px;  top: 50%; width: 8px; height: 28px; transform: translateY(-50%); cursor: ew-resize; }
+.crop-handle-r { right: -5px; top: 50%; width: 8px; height: 28px; transform: translateY(-50%); cursor: ew-resize; }
+
+/* Constrain canvas more in portrait modes */
+.preview-wrapper[data-aspect="3:4"] .preview-canvas,
+.preview-wrapper[data-aspect="2:3"] .preview-canvas,
+.preview-wrapper[data-aspect="10:16"] .preview-canvas,
+.preview-wrapper[data-aspect="9:16"] .preview-canvas {
   max-height: 45vh;
   max-width: 90%;
 }
@@ -1734,6 +1821,72 @@ body {
     0 0 10px rgba(34, 197, 94, 0.1);
 }
 
+/* Crop track — segment blocks share the green palette + edge-handle drag
+   affordance with zoom segments so the timeline reads consistently. */
+.crop-track {
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+}
+.crop-track .track-label { height: 36px; }
+.timeline-crops {
+  position: relative;
+  height: 22px;
+}
+.crop-segment {
+  position: absolute;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(34, 197, 94, 0.08) 0%,
+    rgba(34, 197, 94, 0.02) 100%
+  );
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+.crop-segment:hover {
+  background: linear-gradient(
+    90deg,
+    rgba(34, 197, 94, 0.12) 0%,
+    rgba(34, 197, 94, 0.04) 100%
+  );
+  box-shadow:
+    inset 0 0 16px rgba(34, 197, 94, 0.06),
+    0 0 8px rgba(34, 197, 94, 0.08);
+}
+.crop-segment.selected {
+  background: linear-gradient(
+    90deg,
+    rgba(34, 197, 94, 0.15) 0%,
+    rgba(34, 197, 94, 0.05) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 0 20px rgba(34, 197, 94, 0.08),
+    0 0 10px rgba(34, 197, 94, 0.1);
+}
+.crop-segment .zoom-segment-content { /* reuse zoom-segment internal layout */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.crop-segment.selected .zoom-segment-content { color: #fff; }
+.crop-segment .zoom-segment-content svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
 /* Camera hide track */
 .camera-hide-track {
   border-top: 1px solid rgba(255, 255, 255, 0.03);
@@ -1892,12 +2045,95 @@ body {
 }
 
 /* Zoom Controls Panel */
-.zoom-panel, .camera-panel {
+.zoom-panel, .camera-panel, .crop-panel {
   display: none;
 }
 
-.zoom-panel.active, .camera-panel.active {
+.zoom-panel.active, .camera-panel.active, .crop-panel.active {
   display: block;
+}
+
+/* Crop Panel Styles — controls only. The actual cropping interaction
+   (drag handles) lives over the preview canvas, styled near .video-container. */
+.crop-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+.crop-inset-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.crop-inset-row {
+  display: flex;
+  gap: 12px;
+}
+
+.crop-inset-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crop-inset-item span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 18px;
+}
+
+.crop-inset-input {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 100%;
+  max-width: 80px;
+}
+
+.crop-inset-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.crop-preset-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.crop-preset-btn {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.crop-preset-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.crop-output-readout {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 6px 0 0 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .camera-empty-state {

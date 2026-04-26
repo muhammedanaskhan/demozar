@@ -40,13 +40,23 @@ const state = {
   zoomRampSec: 0.55,          // 0.2–1.5 s — how long the in/out ramp takes
   zoomSmoothTime: 0.10,       // 0.03–0.30 s — SmoothDamp follow responsiveness
   zoomCurve: 'easeInOutCubic',// 'easeInOutCubic' | 'easeOutBack' (bounce)
-  aspectRatio: 'native',
+  // Output frame — global. Fixed pixel dims (e.g. 1920×1080). Aspect drives
+  // the canvas backing buffer + the aspect-lock for every crop segment.
+  output: {
+    aspect: '16:9',
+    height: 1080,  // 480/720/1080/1440/2160
+  },
+  // Crop segments — timeline-driven. Each segment overrides the camera for
+  // its [start, end] time range. Outside any segment, the effective camera
+  // is the default (max-fit aspect-locked rectangle, centered in source).
+  // Like zoom segments: ramp-in / ramp-out via computeZoomRamp.
+  // Each segment: { id, start, end, camera: {x,y,w,h}, easing? }
+  cropSegments: [],
+  selectedCropId: null,
   background: '../assets/abstract.webp',
   backgroundType: 'image',
   backgroundImage: '../assets/abstract.webp',
   imageBlur: 'moderate',
-  hideMenuBar: false,
-  hideDock: false,
   frameStyle: 'default',
   frameShadow: true,
   frameBorder: false,
@@ -480,8 +490,10 @@ function switchToZoomPanel() {
     tab.classList.toggle('active', tab.dataset.tab === 'zoom');
   });
 
-  // Show zoom panel, hide settings
+  // Show zoom panel, hide settings + camera + crop
   elements.zoomPanel.classList.add('active');
+  if (elements.cameraPanel) elements.cameraPanel.classList.remove('active');
+  if (elements.cropPanel) elements.cropPanel.classList.remove('active');
   elements.settingsPanel.style.display = 'none';
 }
 
@@ -492,9 +504,10 @@ function switchToSettingsPanel() {
     tab.classList.toggle('active', tab.dataset.tab === 'settings');
   });
 
-  // Show settings panel, hide zoom + camera
+  // Show settings panel, hide zoom + camera + crop
   elements.zoomPanel.classList.remove('active');
   if (elements.cameraPanel) elements.cameraPanel.classList.remove('active');
+  if (elements.cropPanel) elements.cropPanel.classList.remove('active');
   elements.settingsPanel.style.display = '';
 }
 
@@ -505,8 +518,613 @@ function switchToCameraPanel() {
   });
   elements.zoomPanel.classList.remove('active');
   if (elements.cameraPanel) elements.cameraPanel.classList.add('active');
+  if (elements.cropPanel) elements.cropPanel.classList.remove('active');
   elements.settingsPanel.style.display = 'none';
   updateCameraPanel();
+}
+
+// Switch sidebar to crop panel
+function switchToCropPanel() {
+  document.querySelectorAll('.sidebar-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === 'crop');
+  });
+  elements.zoomPanel.classList.remove('active');
+  if (elements.cameraPanel) elements.cameraPanel.classList.remove('active');
+  if (elements.cropPanel) elements.cropPanel.classList.add('active');
+  elements.settingsPanel.style.display = 'none';
+  // Editing mode is driven by selectedCropId — opening the panel doesn't
+  // force a selection. If no segment is selected, the empty state shows.
+  updateCropPanel();
+}
+
+// ========================================================================
+// VIRTUAL CAMERA MODEL
+// ========================================================================
+//
+// Output frame (state.output): a fixed canvas, e.g. 1920×1080. The exporter
+// always produces video at exactly these pixels. Aspect = output.aspect.
+//
+// Camera (state.camera): a rectangle inside the recorded source video, in
+// normalized coords [0..1]. The camera is ALWAYS aspect-locked to the output:
+//   (camera.w * sourceWidth) / (camera.h * sourceHeight) === outputAspect
+//
+// Render: drawImage(source, camera.x*sw, camera.y*sh, camera.w*sw, camera.h*sh,
+//                    0, 0, outputW, outputH).
+//
+// Zoom: a sub-rect inside the camera. computeSourceRect blends camera + zoom
+// into one final source rectangle to draw.
+// ========================================================================
+
+const ASPECT_RATIOS = {
+  '21:9': 21 / 9,
+  '16:9': 16 / 9,
+  '16:10': 16 / 10,
+  '3:2': 3 / 2,
+  '4:3': 4 / 3,
+  '1:1': 1,
+  '3:4': 3 / 4,
+  '2:3': 2 / 3,
+  '10:16': 10 / 16,
+  '9:16': 9 / 16,
+};
+
+function aspectValue(name) {
+  return ASPECT_RATIOS[name] || 16 / 9;
+}
+
+// Output frame dimensions (px). Width derived from aspect × height; rounded
+// to even numbers (some encoders require it).
+function outputDimensions() {
+  const ratio = aspectValue(state.output.aspect);
+  const h = state.output.height;
+  const w = Math.round((h * ratio) / 2) * 2;
+  return { width: w, height: Math.round(h / 2) * 2 };
+}
+
+// Largest aspect-locked rectangle that fits inside the source.
+//   Returns { w, h } in normalized [0..1] source coords.
+//   Reason: when output aspect differs from source aspect, the camera can't
+//   fill the source — it sits as a centered strip.
+function aspectFitWithin(sourceW, sourceH, outAspectRatio) {
+  if (!sourceW || !sourceH) return { w: 1, h: 1 };
+  const sourceAspect = sourceW / sourceH;
+  if (outAspectRatio >= sourceAspect) {
+    // Output is wider than source — limited by source width
+    return { w: 1, h: sourceAspect / outAspectRatio };
+  }
+  // Output is taller — limited by source height
+  return { w: outAspectRatio / sourceAspect, h: 1 };
+}
+
+// Default camera: max-fit aspect-locked rectangle, centered in source.
+function defaultCamera(sourceW, sourceH, outAspectRatio) {
+  const { w, h } = aspectFitWithin(sourceW, sourceH, outAspectRatio);
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+
+// Clamp + aspect-lock a candidate camera rect.
+//   `dim` selects which dimension to honor when correcting aspect:
+//     'w' → derive h from w, then clamp w if h overflowed
+//     'h' → derive w from h, then clamp h if w overflowed
+//     'either' → derive whichever yields the larger valid rect
+//   Position is clamped to keep the rect fully inside [0,1].
+function clampCamera(cam, sourceW, sourceH, outAspectRatio, dim = 'either') {
+  if (!sourceW || !sourceH) return cam;
+  const sourceAspect = sourceW / sourceH;
+  // In normalized source coords, the locked ratio is (outAspect / sourceAspect).
+  const ratio = outAspectRatio / sourceAspect;  // cam.w / cam.h
+  const minSize = 0.05;  // min camera size (normalized) — 5% of source
+
+  // Step 1: derive a valid (w, h) pair.
+  let w = Math.max(0, Math.min(1, cam.w));
+  let h = Math.max(0, Math.min(1, cam.h));
+
+  if (dim === 'w') {
+    h = w / ratio;
+    if (h > 1) { h = 1; w = h * ratio; }
+  } else if (dim === 'h') {
+    w = h * ratio;
+    if (w > 1) { w = 1; h = w / ratio; }
+  } else {
+    // 'either': pick the pair with the larger area that fits
+    const fromW = (() => { const wh = w; const hh = wh / ratio; return hh <= 1 ? { w: wh, h: hh, area: wh * hh } : null; })();
+    const fromH = (() => { const hh = h; const ww = hh * ratio; return ww <= 1 ? { w: ww, h: hh, area: ww * hh } : null; })();
+    const pick = [fromW, fromH].filter(Boolean).sort((a, b) => b.area - a.area)[0];
+    if (pick) { w = pick.w; h = pick.h; } else { ({ w, h } = aspectFitWithin(sourceW, sourceH, outAspectRatio)); }
+  }
+
+  // Step 2: enforce min size
+  if (w < minSize || h < minSize) {
+    const scale = Math.max(minSize / Math.max(w, 1e-6), minSize / Math.max(h, 1e-6));
+    w *= scale;
+    h *= scale;
+    if (w > 1) { w = 1; h = w / ratio; }
+    if (h > 1) { h = 1; w = h * ratio; }
+  }
+
+  // Step 3: clamp position so the rect is fully inside [0, 1].
+  const x = Math.max(0, Math.min(1 - w, cam.x));
+  const y = Math.max(0, Math.min(1 - h, cam.y));
+  return { x, y, w, h };
+}
+
+// Source-frame dimensions, read from the loaded <video>. Returns {w, h} or
+// {w: 1, h: 1} if metadata isn't available yet.
+function sourceDimensions() {
+  const v = elements.videoPlayer;
+  if (v && v.videoWidth && v.videoHeight) return { w: v.videoWidth, h: v.videoHeight };
+  return { w: 1, h: 1 };
+}
+
+// =====================================================================
+// CROP SEGMENTS — timeline-based cameras.
+// =====================================================================
+//
+// Crop is timeline data, not UI state. Each segment owns a camera that's
+// active for [segment.start, segment.end). Outside any segment, the
+// effective camera is the default (max-fit aspect-locked rect, centered
+// in source). Transitions ease using the same Zoom-feel preset as zoom
+// segments — same SmoothDamp + ramp machinery.
+//
+// Composition with zoom: getEffectiveCamera(time) returns the active crop
+// camera (or default). computeSourceRect then sub-rects inside it for any
+// active zoom segment.
+// =====================================================================
+
+function generateCropId() {
+  return 'crop_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+}
+
+function getCropById(id) {
+  return state.cropSegments.find(s => s.id === id);
+}
+
+// First segment whose [start, end) covers time. Sorted-order start tiebreaks.
+function getActiveCropAt(time) {
+  return state.cropSegments
+    .filter(s => time >= s.start && time < s.end)
+    .sort((a, b) => a.start - b.start)[0] || null;
+}
+
+// The most recent crop segment ending at or before `time`. Used to derive
+// the "previous" camera when easing into the start of a new segment.
+function getCropBefore(time) {
+  return state.cropSegments
+    .filter(s => s.end <= time)
+    .sort((a, b) => b.end - a.end)[0] || null;
+}
+
+function lerpCamera(a, b, t) {
+  // Linear interp preserves aspect lock when both endpoints share the
+  // same locked ratio (proven in the design notes).
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    w: a.w + (b.w - a.w) * t,
+    h: a.h + (b.h - a.h) * t,
+  };
+}
+
+// The camera to render at `time`. Composes default + active segment + ease.
+//   - No active segment at this time: default camera (full-screen max-fit
+//     aspect-locked).
+//   - Active segment is the SELECTED one: WYSIWYG — return segment.camera
+//     directly, no ramp. Lets the user see their handle drags reflected in
+//     the main preview without the in/out ramp eating the change.
+//   - Active segment but NOT selected: lerp previous camera → segment.camera
+//     using computeZoomRamp (same easing zoom segments use).
+//
+// Critical invariant: when the playhead is OUTSIDE every crop segment, the
+// effective camera is always the default — even if a segment is selected
+// for editing in the sidebar. Selection != "always apply this camera".
+function getEffectiveCamera(time, sw, sh) {
+  const ar = aspectValue(state.output.aspect);
+  const baseCam = defaultCamera(sw, sh, ar);
+
+  const seg = getActiveCropAt(time);
+  if (!seg) return baseCam;
+
+  // The active-at-time segment IS the one being edited → render its camera
+  // directly. WYSIWYG only applies when the playhead is inside the selection.
+  if (seg.id === state.selectedCropId) return seg.camera;
+
+  // Active but not selected: eased blend.
+  const ramp = computeZoomRamp(time, seg);
+  const prevSeg = getCropBefore(seg.start);
+  const prevCam = prevSeg ? prevSeg.camera : baseCam;
+  return lerpCamera(prevCam, seg.camera, ramp);
+}
+
+// Create a crop segment at the playhead, default 2s, default camera =
+// max-fit (no actual cropping yet — user immediately drags handles to set).
+function createCropSegment() {
+  const t = elements.videoPlayer?.currentTime || 0;
+  const remaining = (state.duration || 0) - t;
+  if (!isFinite(remaining) || remaining <= 0.1) return null;
+  const dur = Math.min(2, remaining);
+  const { w: sw, h: sh } = sourceDimensions();
+  const ar = aspectValue(state.output.aspect);
+  const seg = {
+    id: generateCropId(),
+    start: t,
+    end: t + dur,
+    camera: defaultCamera(sw, sh, ar),
+  };
+  state.cropSegments.push(seg);
+  state.cropSegments.sort((a, b) => a.start - b.start);
+  state.selectedCropId = seg.id;
+  state.selectedZoomId = null;
+  state.selectedClipId = null;
+  renderCropSegments();
+  updateCropOverlay();
+  updateCropPanel();
+  return seg;
+}
+
+function selectCropSegment(id) {
+  state.selectedCropId = id;
+  state.selectedZoomId = null;
+  state.selectedClipId = null;
+  state.selectedCameraHideId = null;
+  renderCropSegments();
+  // Selecting a crop segment auto-switches to the Crop sidebar panel —
+  // mirrors the Add Zoom → Zoom panel behavior.
+  switchToCropPanel();
+}
+
+function deleteSelectedCropSegment() {
+  if (!state.selectedCropId) return;
+  state.cropSegments = state.cropSegments.filter(s => s.id !== state.selectedCropId);
+  state.selectedCropId = null;
+  renderCropSegments();
+  updateCropPanel();
+  updateCropOverlay();
+}
+
+// Mutate the SELECTED crop segment's camera and refresh UI.
+function setSelectedCropCamera(cam) {
+  const seg = getCropById(state.selectedCropId);
+  if (!seg) return;
+  seg.camera = cam;
+  syncCameraInputsFromState();
+  updateCropOverlay();
+}
+
+// When the global output aspect changes, every crop segment's camera must
+// be re-clamped to the new aspect (the lock invariant must hold per-segment).
+function reclampAllCropSegments() {
+  const { w: sw, h: sh } = sourceDimensions();
+  const ar = aspectValue(state.output.aspect);
+  for (const seg of state.cropSegments) {
+    // Preserve center if possible.
+    const c = seg.camera;
+    const cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+    const fit = aspectFitWithin(sw, sh, ar);
+    seg.camera = clampCamera({ x: cx - fit.w / 2, y: cy - fit.h / 2, w: fit.w, h: fit.h }, sw, sh, ar, 'either');
+  }
+}
+
+// Render the blocks for each crop segment on the timeline. Mirrors zoom
+// segment rendering — same edge handles for resize, body-drag for move.
+function renderCropSegments() {
+  const container = document.getElementById('timelineCrops');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!isFinite(state.duration) || state.duration <= 0) return;
+
+  const cropIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/>
+    <path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/>
+  </svg>`;
+
+  state.cropSegments.forEach(seg => {
+    const el = document.createElement('div');
+    el.className = 'crop-segment' + (seg.id === state.selectedCropId ? ' selected' : '');
+    el.dataset.cropId = seg.id;
+    const leftPct = (seg.start / state.duration) * 100;
+    const widthPct = ((seg.end - seg.start) / state.duration) * 100;
+    el.style.left = leftPct + '%';
+    el.style.width = widthPct + '%';
+    el.innerHTML = `
+      <div class="zoom-handle left"></div>
+      <div class="zoom-segment-content">
+        ${cropIcon}
+        <span>Crop</span>
+      </div>
+      <div class="zoom-handle right"></div>
+    `;
+
+    // Click body to select.
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('zoom-handle')) return;
+      e.stopPropagation();
+      selectCropSegment(seg.id);
+    });
+
+    // Edge handles: resize.
+    el.querySelector('.zoom-handle.left').addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      startCropResize(seg.id, 'left', e);
+    });
+    el.querySelector('.zoom-handle.right').addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      startCropResize(seg.id, 'right', e);
+    });
+
+    // Body: move.
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('zoom-handle')) return;
+      startCropDrag(seg.id, e);
+    });
+
+    container.appendChild(el);
+  });
+}
+
+// Drag a crop segment along the timeline (preserves duration).
+function startCropDrag(segId, e) {
+  const seg = getCropById(segId);
+  if (!seg) return;
+  selectCropSegment(segId);
+  const container = document.getElementById('timelineCrops');
+  const rect = container.getBoundingClientRect();
+  const startX = e.clientX;
+  const startStart = seg.start;
+  const segDur = seg.end - seg.start;
+
+  const onMove = (ev) => {
+    const dt = ((ev.clientX - startX) / rect.width) * state.duration;
+    let newStart = startStart + dt;
+    let newEnd = newStart + segDur;
+    if (newStart < 0) { newStart = 0; newEnd = segDur; }
+    if (newEnd > state.duration) { newEnd = state.duration; newStart = newEnd - segDur; }
+    seg.start = newStart;
+    seg.end = newEnd;
+    renderCropSegments();
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    state.cropSegments.sort((a, b) => a.start - b.start);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Resize a crop segment by dragging its left or right edge handle.
+function startCropResize(segId, handle, e) {
+  const seg = getCropById(segId);
+  if (!seg) return;
+  selectCropSegment(segId);
+  const container = document.getElementById('timelineCrops');
+  const rect = container.getBoundingClientRect();
+  const startX = e.clientX;
+  const startValue = handle === 'left' ? seg.start : seg.end;
+  const minDur = 0.2;
+
+  const onMove = (ev) => {
+    const dt = ((ev.clientX - startX) / rect.width) * state.duration;
+    if (handle === 'left') {
+      let v = startValue + dt;
+      v = Math.max(0, Math.min(seg.end - minDur, v));
+      seg.start = v;
+    } else {
+      let v = startValue + dt;
+      v = Math.min(state.duration, Math.max(seg.start + minDur, v));
+      seg.end = v;
+    }
+    renderCropSegments();
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Sync the X/Y/W/H number inputs from the SELECTED segment's camera.
+function syncCameraInputsFromState() {
+  if (!elements.cameraInputX) return;
+  const seg = getCropById(state.selectedCropId);
+  const c = seg ? seg.camera : { x: 0, y: 0, w: 0, h: 0 };
+  elements.cameraInputX.value = (c.x * 100).toFixed(1);
+  elements.cameraInputY.value = (c.y * 100).toFixed(1);
+  elements.cameraInputW.value = (c.w * 100).toFixed(1);
+  elements.cameraInputH.value = (c.h * 100).toFixed(1);
+}
+
+// Position the crop-rect handles over the SIDEBAR mini-preview. The mini's
+// <video> fills the box (its CSS aspect-ratio is locked to source aspect),
+// so overlay coords map 1:1 to source-normalized [0..1]. Visible only when
+// a crop segment is selected.
+function updateCropOverlay() {
+  if (!elements.cropOverlay || !elements.cropRect) return;
+  const editing = !!state.selectedCropId;
+  elements.cropOverlay.toggleAttribute('hidden', !editing);
+  if (!editing) return;
+
+  const seg = getCropById(state.selectedCropId);
+  if (!seg) return;
+
+  // The mini-preview is the only frame we paint handles on now. Its CSS
+  // aspect is locked to source aspect (see syncMiniPreview), so the overlay
+  // box equals the source-display rectangle. No letterbox math needed.
+  const overlayBox = elements.cropOverlay.getBoundingClientRect();
+  if (!overlayBox.width || !overlayBox.height) return;
+
+  const c = seg.camera;
+  const r = elements.cropRect.style;
+  r.left   = (c.x * overlayBox.width)  + 'px';
+  r.top    = (c.y * overlayBox.height) + 'px';
+  r.width  = (c.w * overlayBox.width)  + 'px';
+  r.height = (c.h * overlayBox.height) + 'px';
+}
+
+// Set the mini-preview's CSS aspect-ratio + src so its <video> fills the
+// box exactly with no letterboxing. Called once source dims are known.
+function syncMiniPreview() {
+  const mini = document.getElementById('cropMiniPreview');
+  const miniVideo = document.getElementById('cropMiniVideo');
+  if (!mini || !miniVideo) return;
+  const { w: sw, h: sh } = sourceDimensions();
+  if (sw && sh) {
+    mini.style.aspectRatio = `${sw} / ${sh}`;
+  }
+  if (state.videoUrl && miniVideo.src !== state.videoUrl) {
+    miniVideo.src = state.videoUrl;
+  }
+}
+
+// True when the renderer should show the full source (with a darkening
+// overlay outside the crop rect) instead of the cropped output. This is
+// the case when the user is actively editing a crop segment.
+function isCropEditingMode() {
+  return !!state.selectedCropId;
+}
+
+// Toggle empty-state vs selected-segment editor inside the Crop panel.
+// Sync the camera inputs from the selected segment.
+function updateCropPanel() {
+  const empty = document.getElementById('cropEmptyState');
+  const editor = document.getElementById('cropSegmentEditor');
+  if (!empty || !editor) return;
+  const seg = getCropById(state.selectedCropId);
+  empty.classList.toggle('hidden', !!seg);
+  editor.classList.toggle('hidden', !seg);
+  if (seg) {
+    syncCameraInputsFromState();
+    syncMiniPreview();
+    updateCropOverlay();
+  }
+}
+
+// =====================================================================
+// CropOverlay drag — direct manipulation handlers.
+// =====================================================================
+// Aspect-locked. Drag = INSTANT (no easing). All math in source-norm [0..1]
+// after converting from overlay pixels via the same letterbox calculations
+// updateCropOverlay uses.
+// =====================================================================
+
+function initCropOverlayDrag() {
+  const overlay = elements.cropOverlay;
+  const rect = elements.cropRect;
+  if (!overlay || !rect) return;
+
+  // Convert a clientX/Y into source-norm coordinates [0..1].
+  // Overlay sits inside the mini-preview whose CSS aspect-ratio is locked
+  // to source aspect → no letterbox math needed; box is 1:1 with source.
+  function clientToSourceNorm(ev) {
+    const overlayBox = overlay.getBoundingClientRect();
+    if (!overlayBox.width || !overlayBox.height) return null;
+    return {
+      x: Math.max(0, Math.min(1, (ev.clientX - overlayBox.left) / overlayBox.width)),
+      y: Math.max(0, Math.min(1, (ev.clientY - overlayBox.top)  / overlayBox.height)),
+    };
+  }
+
+  let drag = null;  // { kind, startCam, startPt, segId }
+
+  function onPointerDown(ev) {
+    if (!isCropEditingMode()) return;
+    const seg = getCropById(state.selectedCropId);
+    if (!seg) return;
+    const handleEl = ev.target.closest('.crop-handle');
+    const inRect = ev.target === rect || (handleEl == null && rect.contains(ev.target));
+    if (!handleEl && !inRect) return;
+    ev.preventDefault();
+    rect.setPointerCapture?.(ev.pointerId);
+    const startPt = clientToSourceNorm(ev);
+    if (!startPt) return;
+    drag = {
+      kind: handleEl ? handleEl.dataset.handle : 'move',
+      startCam: { ...seg.camera },
+      startPt,
+      segId: seg.id,
+    };
+  }
+
+  function onPointerMove(ev) {
+    if (!drag) return;
+    ev.preventDefault();
+    const pt = clientToSourceNorm(ev);
+    if (!pt) return;
+    const { w: sw, h: sh } = sourceDimensions();
+    const ar = aspectValue(state.output.aspect);
+    const dx = pt.x - drag.startPt.x;
+    const dy = pt.y - drag.startPt.y;
+
+    let cam;
+    const c = drag.startCam;
+    if (drag.kind === 'move') {
+      cam = { x: c.x + dx, y: c.y + dy, w: c.w, h: c.h };
+    } else {
+      // Resize. Convention:
+      //   corner: anchor at opposite corner; aspect-lock honors whichever
+      //           dimension grew more (proportional to ratio).
+      //   edge:   anchor at opposite edge; aspect-lock derives the other dim
+      //           and recenters on the perpendicular axis (preserves center).
+      let x = c.x, y = c.y, w = c.w, h = c.h;
+      if (drag.kind === 'tl' || drag.kind === 'tr' || drag.kind === 'bl' || drag.kind === 'br') {
+        const isLeft = drag.kind === 'tl' || drag.kind === 'bl';
+        const isTop  = drag.kind === 'tl' || drag.kind === 'tr';
+        const ax = isLeft ? c.x + c.w : c.x;       // anchor x (opposite corner)
+        const ay = isTop  ? c.y + c.h : c.y;       // anchor y
+        // Tentative new opposite corner = pointer
+        const nx = pt.x, ny = pt.y;
+        let nw = Math.abs(nx - ax);
+        let nh = Math.abs(ny - ay);
+        // Aspect-lock: pick the dim that yields the larger rect, honoring ratio.
+        const camAspect = (nw * sw) / Math.max(1e-6, nh * sh);
+        if (camAspect > ar) { nh = (nw * sw) / ar / sh; } else { nw = (nh * sh) * ar / sw; }
+        x = isLeft ? ax - nw : ax;
+        y = isTop  ? ay - nh : ay;
+        w = nw; h = nh;
+      } else if (drag.kind === 'l' || drag.kind === 'r') {
+        // Horizontal edge: width changes, height derived, vertical center preserved.
+        const ax = drag.kind === 'l' ? c.x + c.w : c.x;  // anchor x = opposite edge
+        const cy = c.y + c.h / 2;
+        let nw = Math.abs(pt.x - ax);
+        let nh = (nw * sw) / ar / sh;
+        x = drag.kind === 'l' ? ax - nw : ax;
+        y = cy - nh / 2;
+        w = nw; h = nh;
+      } else if (drag.kind === 't' || drag.kind === 'b') {
+        // Vertical edge: height changes, width derived, horizontal center preserved.
+        const ay = drag.kind === 't' ? c.y + c.h : c.y;
+        const cx = c.x + c.w / 2;
+        let nh = Math.abs(pt.y - ay);
+        let nw = (nh * sh) * ar / sw;
+        x = cx - nw / 2;
+        y = drag.kind === 't' ? ay - nh : ay;
+        w = nw; h = nh;
+      }
+      cam = { x, y, w, h };
+    }
+    cam = clampCamera(cam, sw, sh, ar, drag.kind === 'move' ? 'either' : (
+      drag.kind === 't' || drag.kind === 'b' ? 'h' : 'w'
+    ));
+    // Drag = instant: write directly to the selected segment.
+    const seg = getCropById(drag.segId);
+    if (seg) {
+      seg.camera = cam;
+      syncCameraInputsFromState();
+      updateCropOverlay();
+    }
+  }
+
+  function onPointerUp(ev) {
+    if (!drag) return;
+    rect.releasePointerCapture?.(ev.pointerId);
+    drag = null;
+  }
+
+  rect.addEventListener('pointerdown', onPointerDown);
+  // Listen on document so a fast drag past the overlay edge doesn't drop the move.
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerUp);
+  document.addEventListener('pointercancel', onPointerUp);
 }
 
 // Reflect state.cameraSettings into the panel's controls; also toggle
@@ -643,6 +1261,9 @@ const elements = {
   previewBackground: document.getElementById('previewBackground'),
   previewFrame: document.getElementById('previewFrame'),
   minimalFrame: document.getElementById('minimalFrame'),
+  previewCanvas: document.getElementById('previewCanvas'),
+  cropOverlay: document.getElementById('cropOverlay'),
+  cropRect: document.getElementById('cropRect'),
   playBtn: document.getElementById('playBtn'),
   currentTime: document.getElementById('currentTime'),
   durationEl: document.getElementById('duration'),
@@ -667,10 +1288,7 @@ const elements = {
   exportFinalBtn: document.getElementById('exportFinalBtn'),
   loadingOverlay: document.getElementById('loadingOverlay'),
   loadingProgressBar: document.getElementById('loadingProgressBar'),
-  aspectRatio: document.getElementById('aspectRatio'),
   imageBlur: document.getElementById('imageBlur'),
-  hideMenuBar: document.getElementById('hideMenuBar'),
-  hideDock: document.getElementById('hideDock'),
   frameShadow: document.getElementById('frameShadow'),
   frameBorder: document.getElementById('frameBorder'),
   cursorSize: document.getElementById('cursorSize'),
@@ -708,15 +1326,35 @@ const elements = {
   cameraOpacityValue: document.getElementById('cameraOpacityValue'),
   cameraMirror: document.getElementById('cameraMirror'),
   cameraRadius: document.getElementById('cameraRadius'),
-  cameraRadiusValue: document.getElementById('cameraRadiusValue')
+  cameraRadiusValue: document.getElementById('cameraRadiusValue'),
+  // Crop panel — virtual camera controls
+  cropPanel: document.getElementById('cropPanel'),
+  outputAspectSelect: document.getElementById('outputAspectSelect'),
+  outputHeightSelect: document.getElementById('outputHeightSelect'),
+  cropOutputReadout: document.getElementById('cropOutputReadout'),
+  cropResetCamera: document.getElementById('cropResetCamera'),
+  cropFullscreen: document.getElementById('cropFullscreen'),
+  cropHideMenuBar: document.getElementById('cropHideMenuBar'),
+  cropHideDock: document.getElementById('cropHideDock'),
+  cameraInputX: document.getElementById('cameraInputX'),
+  cameraInputY: document.getElementById('cameraInputY'),
+  cameraInputW: document.getElementById('cameraInputW'),
+  cameraInputH: document.getElementById('cameraInputH')
 };
 
 // Initialize
 async function init() {
-  await loadVideo();
+  // Reflect the chosen output aspect/height into the dropdowns and canvas dims
+  // BEFORE loadVideo so the canvas is the right size when the first frames arrive.
+  reflectOutputUI();
   bindEvents();
-  updatePreview();
-  startZoomAnimation(); // Start zoom follow animation
+  initCropOverlayDrag();
+  // loadVideo kicks off async IndexedDB read; updatePreview / renderCropSegments
+  // run from onloadedmetadata once source video pixel dimensions are known.
+  await loadVideo();
+  // Render loop runs forever, painting the canvas from the (possibly still-
+  // loading) <video>. Once frames are decoded they show up on the next tick.
+  startRenderLoop();
 }
 
 // Load video from IndexedDB
@@ -797,6 +1435,12 @@ async function loadVideo() {
         };
 
         elements.videoPlayer.onloadedmetadata = () => {
+          // Now that source pixel dimensions are known, kick a render.
+          // No global camera to init — segments are created on demand.
+          updatePreview();
+          renderCropSegments();
+          syncMiniPreview();
+
           // WebM from MediaRecorder often has Infinity duration initially
           // We need to seek briefly to get the actual duration
           if (!isFinite(elements.videoPlayer.duration)) {
@@ -1174,7 +1818,7 @@ function resetTimeline() {
   renderClips();
   renderZoomSegments();
   updateZoomControls();
-  applyZoomEffect();
+  // Render loop will pick up the cleared state on its next tick.
 }
 
 // Get total edited duration
@@ -1333,13 +1977,14 @@ function attachBubbleDragHandlers() {
     const offsetY = e.clientY - bubbleRect.top;
 
     const onMove = (ev) => {
+      // raw position relative to the container (CSS pixels; container == canvas)
       const rawX = ev.clientX - rect.left - offsetX;
       const rawY = ev.clientY - rect.top - offsetY;
-      const cw = rect.width, ch = rect.height;
-      // Normalize to 0..1 (top-left corner of bubble)
-      state.cameraSettings.customX = Math.max(0, Math.min(1, rawX / cw));
-      state.cameraSettings.customY = Math.max(0, Math.min(1, rawY / ch));
-      state.cameraSettings.anchor = null; // custom position takes over
+      // Normalize to the FULL OUTPUT canvas (0..1). The bubble is free to
+      // sit in the bg padding around the recorder content.
+      state.cameraSettings.customX = Math.max(0, Math.min(1, rawX / rect.width));
+      state.cameraSettings.customY = Math.max(0, Math.min(1, rawY / rect.height));
+      state.cameraSettings.anchor = null;
       updateCameraBubble();
     };
     const onUp = () => {
@@ -1395,64 +2040,60 @@ function attachBubbleDragHandlers() {
 
 // Paint the bubble based on current state.cameraSettings. Called on load and
 // whenever a sidebar control changes.
+//
+// Position is in OUTPUT space (the full canvas), so the bubble can extend
+// into the background padding around the recorder content — matches what
+// modern recorders (Cursorful, Screen Studio) do. customX/Y are normalized
+// 0..1 of the entire output canvas.
 function updateCameraBubble() {
   const bubble = elements.webcamBubble;
   if (!bubble) return;
 
   const s = state.cameraSettings;
-  if (!s || !state.webcamUrl) {
-    bubble.classList.add('hidden');
-    return;
-  }
-
-  if (!s.enabled) {
-    bubble.classList.add('hidden');
-    return;
-  }
-
-  // A "hide" segment covering the current time overrides visibility
+  if (!s || !state.webcamUrl) { bubble.classList.add('hidden'); return; }
+  if (!s.enabled) { bubble.classList.add('hidden'); return; }
   if (isCameraHiddenAt(elements.videoPlayer.currentTime || 0)) {
-    bubble.classList.add('hidden');
-    return;
+    bubble.classList.add('hidden'); return;
   }
-
   bubble.classList.remove('hidden');
 
-  // Position is normalized to the preview (.video-container). Bubble is
-  // always square; the visual shape is driven by border-radius.
+  const canvas = elements.previewCanvas;
   const container = elements.videoContainer;
-  const cw = container?.clientWidth || 0;
-  const ch = container?.clientHeight || 0;
-  const size = Math.round((s.sizePct / 100) * (cw || 800));
+  if (!canvas || !container) return;
 
-  bubble.style.width = size + 'px';
-  bubble.style.height = size + 'px';
+  // Canvas backing buffer is at output dims. Its CSS box fills container.
+  const out = outputDimensions();
+  const cssW = canvas.clientWidth || container.clientWidth || 0;
+  const cssH = canvas.clientHeight || container.clientHeight || 0;
+  if (!cssW || !cssH) return;
+
+  // Bubble size scales with the full canvas width (was videoRect.w).
+  const bubbleSize = Math.round((s.sizePct / 100) * cssW);
+  bubble.style.width = bubbleSize + 'px';
+  bubble.style.height = bubbleSize + 'px';
   bubble.style.opacity = String(s.opacity ?? 1);
   bubble.style.borderRadius = getCornerRadiusPct(s) + '%';
 
   let left, top;
   if (s.customX != null && s.customY != null) {
-    // Dragged free-form: normalized 0..1 relative to container
-    left = Math.round(s.customX * cw);
-    top = Math.round(s.customY * ch);
+    // 0..1 of the full output canvas (CSS-pixel space here = the wrapper).
+    left = s.customX * cssW;
+    top  = s.customY * cssH;
   } else {
-    // 9-point anchor: {top|middle|bottom}-{left|center|right}
-    const margin = 16;
-    left = margin; top = margin;
+    const margin = Math.round(cssW * 0.02);
+    left = margin;
+    top  = margin;
     const [vAnchor, hAnchor] = (s.anchor || 'bottom-right').split('-');
-    if (hAnchor === 'center') left = Math.round((cw - size) / 2);
-    else if (hAnchor === 'right') left = Math.max(0, cw - size - margin);
-    if (vAnchor === 'middle') top = Math.round((ch - size) / 2);
-    else if (vAnchor === 'bottom') top = Math.max(0, ch - size - margin);
+    if (hAnchor === 'center') left = (cssW - bubbleSize) / 2;
+    else if (hAnchor === 'right') left = cssW - bubbleSize - margin;
+    if (vAnchor === 'middle') top = (cssH - bubbleSize) / 2;
+    else if (vAnchor === 'bottom') top = cssH - bubbleSize - margin;
   }
+  left = Math.max(0, Math.min(cssW - bubbleSize, left));
+  top  = Math.max(0, Math.min(cssH - bubbleSize, top));
 
-  // Clamp so the bubble stays inside the preview
-  left = Math.max(0, Math.min(cw - size, left));
-  top = Math.max(0, Math.min(ch - size, top));
-
-  bubble.style.left = left + 'px';
-  bubble.style.top = top + 'px';
-
+  bubble.style.left = Math.round(left) + 'px';
+  bubble.style.top  = Math.round(top)  + 'px';
   bubble.classList.toggle('mirror', !!s.mirror);
 }
 
@@ -1517,16 +2158,21 @@ function bindEvents() {
   // Reposition the webcam bubble on viewport resize — it's laid out in pixels.
   window.addEventListener('resize', updateCameraBubble);
 
-  // Play/Pause
+  // Play/Pause — click target is the previewCanvas (videoPlayer is hidden).
   elements.playBtn.addEventListener('click', togglePlay);
-  elements.videoPlayer.addEventListener('click', togglePlay);
+  elements.previewCanvas?.addEventListener('click', () => {
+    // When a crop segment is being edited, clicks belong to the crop overlay
+    // (drag/move detection happens there) — don't toggle play.
+    if (isCropEditingMode()) return;
+    togglePlay();
+  });
 
   // Video events
   elements.videoPlayer.addEventListener('timeupdate', () => {
     handleClipBoundaries(); // Skip deleted sections during playback
     updateProgress();
     updatePlaybackRate();
-    applyZoomEffect();
+    // Zoom + crop are driven by the rAF render loop now — no per-event work needed here.
     updateCameraBubble(); // respect camera-hide segments
   });
   elements.videoPlayer.addEventListener('ended', () => {
@@ -1627,27 +2273,129 @@ function bindEvents() {
     });
   });
 
-  // Settings
-  elements.aspectRatio.addEventListener('change', (e) => {
-    state.aspectRatio = e.target.value;
-    updatePreview();
-  });
-
   elements.imageBlur.addEventListener('change', (e) => {
     state.imageBlur = e.target.value;
     updatePreview();
   });
 
-  // Crop toggles
-  elements.hideMenuBar.addEventListener('change', (e) => {
-    state.hideMenuBar = e.target.checked;
-    updatePreview();
-  });
+  // ----- Output settings (global, affect every crop segment + canvas) -----
 
-  elements.hideDock.addEventListener('change', (e) => {
-    state.hideDock = e.target.checked;
-    updatePreview();
+  if (elements.outputAspectSelect) {
+    elements.outputAspectSelect.addEventListener('change', (e) => {
+      state.output.aspect = e.target.value;
+      reflectOutputUI();
+      // Re-clamp ALL crop segments to the new aspect (lock invariant).
+      reclampAllCropSegments();
+      renderCropSegments();
+      updateCropOverlay();
+      updatePreview();
+    });
+  }
+
+  if (elements.outputHeightSelect) {
+    elements.outputHeightSelect.addEventListener('change', (e) => {
+      state.output.height = parseInt(e.target.value, 10) || 1080;
+      reflectOutputUI();
+    });
+  }
+
+  // ----- Crop segment controls (operate on the selected segment) -----
+  // Each preset mutates the SELECTED segment's camera. If no segment is
+  // selected, the click is a no-op (the empty-state CTA prompts the user
+  // to click "Add Crop" first).
+
+  function withSelectedSeg(fn) {
+    const seg = getCropById(state.selectedCropId);
+    if (!seg) return;
+    const { w: sw, h: sh } = sourceDimensions();
+    const ar = aspectValue(state.output.aspect);
+    fn(seg, sw, sh, ar);
+    syncCameraInputsFromState();
+    updateCropOverlay();
+  }
+
+  if (elements.cropResetCamera) {
+    elements.cropResetCamera.addEventListener('click', () => {
+      withSelectedSeg((seg, sw, sh, ar) => { seg.camera = defaultCamera(sw, sh, ar); });
+    });
+  }
+
+  if (elements.cropFullscreen) {
+    // "Fullscreen" = literally include everything — Mac menu bar at top, dock
+    // at bottom, full source pixels. To do that without letterboxing, we
+    // first snap the OUTPUT aspect to the closest standard ratio matching
+    // the source (e.g. 16:10 for typical Mac retina, 16:9 for Windows).
+    // Then defaultCamera = {0,0,1,1} for that matched aspect.
+    elements.cropFullscreen.addEventListener('click', () => {
+      const seg = getCropById(state.selectedCropId);
+      if (!seg) return;
+      const { w: sw, h: sh } = sourceDimensions();
+      if (!sw || !sh) return;
+
+      // Find the nearest standard aspect to source.
+      const sourceAspect = sw / sh;
+      let bestName = state.output.aspect;
+      let bestDiff = Infinity;
+      for (const [name, ratio] of Object.entries(ASPECT_RATIOS)) {
+        const diff = Math.abs(ratio - sourceAspect);
+        if (diff < bestDiff) { bestDiff = diff; bestName = name; }
+      }
+      state.output.aspect = bestName;
+      reflectOutputUI();
+      reclampAllCropSegments();
+
+      // Now camera = full source (defaultCamera is {0,0,1,1} for matched aspects).
+      const ar = aspectValue(state.output.aspect);
+      seg.camera = defaultCamera(sw, sh, ar);
+      syncCameraInputsFromState();
+      updateCropOverlay();
+      renderCropSegments();
+    });
+  }
+
+  if (elements.cropHideMenuBar) {
+    elements.cropHideMenuBar.addEventListener('click', () => {
+      withSelectedSeg((seg, sw, sh, ar) => {
+        const c = seg.camera;
+        const insetN = 0.045;
+        seg.camera = clampCamera({ x: c.x, y: c.y + insetN, w: c.w, h: c.h - insetN }, sw, sh, ar, 'h');
+      });
+    });
+  }
+
+  if (elements.cropHideDock) {
+    elements.cropHideDock.addEventListener('click', () => {
+      withSelectedSeg((seg, sw, sh, ar) => {
+        const c = seg.camera;
+        const insetN = 0.07;
+        seg.camera = clampCamera({ x: c.x, y: c.y, w: c.w, h: c.h - insetN }, sw, sh, ar, 'h');
+      });
+    });
+  }
+
+  // Numerical camera inputs (X/Y/W/H as % of source) — mutate selected segment.
+  function commitCameraInputs(driverDim) {
+    withSelectedSeg((seg, sw, sh, ar) => {
+      seg.camera = clampCamera({
+        x: parseFloat(elements.cameraInputX.value) / 100,
+        y: parseFloat(elements.cameraInputY.value) / 100,
+        w: parseFloat(elements.cameraInputW.value) / 100,
+        h: parseFloat(elements.cameraInputH.value) / 100,
+      }, sw, sh, ar, driverDim);
+    });
+  }
+  ['X', 'Y'].forEach(k => {
+    elements[`cameraInput${k}`]?.addEventListener('change', () => commitCameraInputs('w'));
   });
+  elements.cameraInputW?.addEventListener('change', () => commitCameraInputs('w'));
+  elements.cameraInputH?.addEventListener('change', () => commitCameraInputs('h'));
+
+  // Add Crop / Delete Crop buttons in the panel
+  document.getElementById('addCropBtn')?.addEventListener('click', () => {
+    const seg = createCropSegment();
+    if (seg) switchToCropPanel();
+  });
+  document.getElementById('deleteCropBtn')?.addEventListener('click', deleteSelectedCropSegment);
 
   elements.frameShadow.addEventListener('change', (e) => {
     state.frameShadow = e.target.checked;
@@ -1843,14 +2591,22 @@ function bindEvents() {
   document.querySelectorAll('.sidebar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const tabType = tab.dataset.tab;
+      // Leaving the crop tab → drop the crop selection (overlay disappears,
+      // canvas swaps back to rendering the effective camera output).
+      if (tabType !== 'crop' && state.selectedCropId) {
+        state.selectedCropId = null;
+        renderCropSegments();
+        updateCropOverlay();
+      }
       if (tabType === 'settings') {
         switchToSettingsPanel();
       } else if (tabType === 'zoom') {
         switchToZoomPanel();
       } else if (tabType === 'camera') {
         switchToCameraPanel();
+      } else if (tabType === 'crop') {
+        switchToCropPanel();
       }
-      // Other tabs can be added later
     });
   });
 
@@ -1993,7 +2749,7 @@ function animatePlayhead() {
   if (state.isPlaying) {
     handleClipBoundaries(); // Check and skip deleted sections
     updateProgress();
-    applyZoomEffect();
+    // Zoom/crop are driven by the rAF render loop; nothing else to do here.
     playheadAnimationId = requestAnimationFrame(animatePlayhead);
   }
 }
@@ -2145,7 +2901,6 @@ function seekFromTimeline(e) {
     elements.videoPlayer.currentTime = videoTime;
     updateProgress();
     updatePlaybackRate();
-    applyZoomEffect();
   }
 }
 
@@ -2172,7 +2927,6 @@ function seekFromZoomTrack(e) {
     elements.videoPlayer.currentTime = videoTime;
     updateProgress();
     updatePlaybackRate();
-    applyZoomEffect();
   }
 }
 
@@ -2322,14 +3076,6 @@ function updatePlaybackRate() {
   }
 }
 
-// Apply zoom effect during playback (called from animation loop)
-// This function is now a no-op - zoom is handled by the animation loop
-function applyZoomEffect() {
-  // Zoom is handled by startZoomAnimation/applyZoomEffectSmooth
-  // This function is kept for compatibility but does nothing
-  // The animation loop provides smoother cursor following
-}
-
 // Cubic ease in/out function
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -2433,62 +3179,6 @@ function smoothDamp(current, target, velocityRef, smoothTime, deltaTime, maxSpee
   return output;
 }
 
-// Animation loop for smooth zoom following
-let zoomAnimationId = null;
-
-let lastAnimateTs = 0;
-
-function startZoomAnimation() {
-  if (zoomAnimationId) return;
-
-  function animate(now) {
-    const currentTime = elements.videoPlayer?.currentTime || 0;
-
-    // Time elapsed since the last rAF tick — feeds SmoothDamp.
-    let dt = lastAnimateTs ? (now - lastAnimateTs) / 1000 : 1 / 60;
-    if (dt > 0.1) dt = 0.1;  // cap to avoid a huge step after a tab resume
-    lastAnimateTs = now;
-
-    // Target cursor position from recorded data at current video time
-    const cursorPos = getCursorAtTime(currentTime);
-    state.cursorX = cursorPos.x;
-    state.cursorY = cursorPos.y;
-
-    // Critically-damped spring (Unity SmoothDamp) — produces the same
-    // "cinema operator following a subject" feel as Screen Studio /
-    // Screenize, and settles without overshoot.
-    const { smoothTime } = getZoomPreset();
-    state.smoothCursorX = smoothDamp(state.smoothCursorX, state.cursorX, state.smoothCursorVX, smoothTime, dt);
-    state.smoothCursorY = smoothDamp(state.smoothCursorY, state.cursorY, state.smoothCursorVY, smoothTime, dt);
-
-    // Apply zoom if there's an active zoom segment
-    const zoom = getZoomAtTime(currentTime);
-
-    if (zoom) {
-      applyZoomEffectSmooth(zoom);
-      elements.previewFrame.classList.add('zoom-active');
-    } else {
-      // Reset transform + blur when no zoom
-      elements.videoPlayer.style.transform = 'none';
-      elements.videoPlayer.style.transformOrigin = '0 0';
-      elements.videoPlayer.style.filter = '';
-      elements.previewFrame.classList.remove('zoom-active');
-    }
-
-    zoomAnimationId = requestAnimationFrame(animate);
-  }
-
-  lastAnimateTs = 0;
-  zoomAnimationId = requestAnimationFrame(animate);
-}
-
-function stopZoomAnimation() {
-  if (zoomAnimationId) {
-    cancelAnimationFrame(zoomAnimationId);
-    zoomAnimationId = null;
-  }
-}
-
 // Motion-blur amount (in px) for a given ramp value. Peaks in the middle
 // of the ramp and vanishes at rest (ramp = 0 or 1). Screen Studio ships
 // motion blur on zoom by default — it's half of why their zooms feel
@@ -2500,62 +3190,431 @@ function zoomMotionBlurPx(ramp) {
   return (t * (1 - t)) * 4 * ZOOM_BLUR_PEAK_PX;
 }
 
-// Smooth version of applyZoomEffect for animation loop
-function applyZoomEffectSmooth(zoom) {
-  const currentTime = elements.videoPlayer.currentTime;
-  // Fixed-time ramp (see computeZoomRamp) so both 1.5 s and 10 s zooms
-  // feel equally cinematic instead of popping or dragging.
-  const ramp = computeZoomRamp(currentTime, zoom);
-  const scale = 1 + (zoom.depth - 1) * ramp;
+// =====================================================================
+// renderFrame: single source of truth — drives both preview rAF and export.
+// =====================================================================
+//
+// Inputs:
+//   ctx     — destination Canvas2D (sized to outputDimensions())
+//   time    — video time (seconds) to render at
+//   opts:
+//     mode         — 'output' (default): camera × zoom → fill canvas
+//                  | 'crop-edit': source aspect-fitted into canvas (no zoom)
+//     includeWebcam — true at export (paint webcam onto canvas);
+//                     false at preview (DOM overlay handles it)
+//     bgImage      — optional pre-loaded HTMLImageElement for image bg
+//     useSmoothCamera — true to render state.smoothCamera (eased), false
+//                       to render the raw state.camera (instant). Preview
+//                       uses smoothCamera; export uses camera (no easing
+//                       between fixed export camera positions).
+//
+// Coordinate spaces:
+//   source-norm  — [0..1] of the recorded video frame
+//   source-px    — [0..videoWidth/Height]
+//   output-px    — [0..outputW/H], the canvas
+// =====================================================================
 
-  let cursorX, cursorY;
+// Compute the source rectangle (in source pixels) that maps to the entire
+// output frame. Combines effective camera (from active crop segment, eased)
+// + active zoom into a single rect.
+//   opts.sourceWidth/Height: source pixel dims
+//   opts.cursor: { x, y } in source-norm; overrides state.smoothCursor*
+//                (used by export with its own SmoothDamp instance)
+function computeSourceRect(time, opts) {
+  const sw = opts.sourceWidth || 0;
+  const sh = opts.sourceHeight || 0;
+  const cam = getEffectiveCamera(time, sw, sh);
+  const camPx = { x: cam.x * sw, y: cam.y * sh, w: cam.w * sw, h: cam.h * sh };
 
+  if (!sw || !sh) return camPx;
+
+  const zoom = getZoomAtTime(time);
+  if (!zoom) return camPx;
+
+  // Zoom: a sub-rect inside the camera, centered on cursor (follow) or
+  // fixedX/fixedY (fixed). Cursor coords are in source-norm [0..1].
+  const ramp = computeZoomRamp(time, zoom);
+  const zoomScale = 1 + (zoom.depth - 1) * ramp;
+
+  let cursorXn, cursorYn;
   if (zoom.position === 'fixed') {
-    cursorX = zoom.fixedX;
-    cursorY = zoom.fixedY;
+    cursorXn = zoom.fixedX;
+    cursorYn = zoom.fixedY;
+  } else if (opts.cursor) {
+    cursorXn = opts.cursor.x;
+    cursorYn = opts.cursor.y;
   } else {
-    // Follow cursor: use smoothed recorded cursor position
-    cursorX = state.smoothCursorX;
-    cursorY = state.smoothCursorY;
+    cursorXn = state.smoothCursorX;
+    cursorYn = state.smoothCursorY;
+  }
+  const cursorPx = { x: cursorXn * sw, y: cursorYn * sh };
+
+  const subW = camPx.w / zoomScale;
+  const subH = camPx.h / zoomScale;
+  let subX = cursorPx.x - subW / 2;
+  let subY = cursorPx.y - subH / 2;
+
+  // Clamp the zoom sub-rect inside the camera (so we never expose pixels
+  // outside the user-chosen crop, even when the cursor is at an edge).
+  subX = Math.max(camPx.x, Math.min(camPx.x + camPx.w - subW, subX));
+  subY = Math.max(camPx.y, Math.min(camPx.y + camPx.h - subH, subY));
+  return { x: subX, y: subY, w: subW, h: subH };
+}
+
+// Where the video region sits inside the output canvas. Two layouts:
+//   - hidden background → tight: video region = full canvas, no padding
+//   - any visible background → padded so the bg shows around the video
+function computeVideoRect(out) {
+  const hidden = state.backgroundType === 'hidden';
+  const frameH = (hidden || state.frameStyle === 'hidden')
+    ? 0 : (state.frameStyle === 'minimal' ? 36 : 0);
+  if (hidden) {
+    return { x: 0, y: frameH, w: out.width, h: out.height - frameH, frameH };
+  }
+  // Padded layout — leave ~6% padding on each side so the bg shows.
+  const pad = Math.round(out.width * 0.06);
+  const availW = out.width - pad * 2;
+  const availH = out.height - pad * 2 - frameH;
+  // Camera viewport is already aspect-locked to output, so video region
+  // matches the output aspect after the frame chrome is subtracted.
+  const outAspect = (out.width) / (out.height);
+  let w, h;
+  // Fit availW/availH to output aspect (the camera region itself).
+  if (availW / availH > outAspect) {
+    h = availH;
+    w = h * outAspect;
+  } else {
+    w = availW;
+    h = w / outAspect;
+  }
+  const x = (out.width - w) / 2;
+  const y = pad + frameH;  // frame chrome sits above the video region
+  return { x, y, w, h, frameH };
+}
+
+function drawBackgroundToCanvas(ctx, out, bgImage) {
+  if (state.backgroundType === 'hidden') {
+    // Transparent — leave as-is.
+    return;
+  }
+  if (state.backgroundType === 'color') {
+    ctx.fillStyle = state.background || '#1a1a2e';
+    ctx.fillRect(0, 0, out.width, out.height);
+    return;
+  }
+  if (state.backgroundType === 'gradient') {
+    const g = ctx.createLinearGradient(0, 0, out.width, out.height);
+    // Cheap gradient parser: pull the first two hex colors.
+    const colors = (state.background || '').match(/#[0-9a-fA-F]{3,8}/g) || ['#667eea', '#764ba2'];
+    g.addColorStop(0, colors[0] || '#667eea');
+    g.addColorStop(1, colors[1] || colors[0] || '#764ba2');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, out.width, out.height);
+    return;
+  }
+  // Image background
+  if (bgImage && bgImage.complete && bgImage.naturalWidth) {
+    // Cover-fit
+    const ia = bgImage.naturalWidth / bgImage.naturalHeight;
+    const oa = out.width / out.height;
+    let dw, dh;
+    if (ia >= oa) { dh = out.height; dw = dh * ia; } else { dw = out.width; dh = dw / ia; }
+    const dx = (out.width - dw) / 2;
+    const dy = (out.height - dh) / 2;
+    // Cheap blur via filter (CPU cost is fine at 30fps).
+    const blurMap = { none: 0, light: 8, moderate: 16, heavy: 32 };
+    const blurPx = blurMap[state.imageBlur] ?? 16;
+    if (blurPx) {
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px)`;
+      // Expand slightly so blur edges don't feather into transparent.
+      ctx.drawImage(bgImage, dx - 30, dy - 30, dw + 60, dh + 60);
+      ctx.restore();
+    } else {
+      ctx.drawImage(bgImage, dx, dy, dw, dh);
+    }
+  } else {
+    // Image not loaded yet → fallback gradient so the canvas isn't black.
+    const g = ctx.createLinearGradient(0, 0, out.width, out.height);
+    g.addColorStop(0, '#667eea'); g.addColorStop(1, '#764ba2');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, out.width, out.height);
+  }
+}
+
+function drawFrameChromeToCanvas(ctx, videoRect, out) {
+  if (state.backgroundType === 'hidden') return;  // no chrome on tight crop
+  if (state.frameStyle === 'hidden') return;
+  if (state.frameShadow) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 40;
+    ctx.shadowOffsetY = 15;
+    ctx.fillStyle = '#1a1a1d';
+    const radius = 12;
+    ctx.beginPath();
+    ctx.roundRect(videoRect.x, videoRect.y - videoRect.frameH, videoRect.w, videoRect.h + videoRect.frameH, radius);
+    ctx.fill();
+    ctx.restore();
+  }
+  if (state.frameStyle === 'minimal' && videoRect.frameH > 0) {
+    ctx.fillStyle = '#28282a';
+    ctx.beginPath();
+    ctx.roundRect(videoRect.x, videoRect.y - videoRect.frameH, videoRect.w, videoRect.frameH, [12, 12, 0, 0]);
+    ctx.fill();
+
+    // Traffic lights
+    const dotR = 5;
+    const dotY = videoRect.y - videoRect.frameH / 2;
+    const baseX = videoRect.x + 14;
+    ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(baseX + i * 16, dotY, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // URL pill
+    const urlW = Math.min(180, videoRect.w * 0.3);
+    const urlH = 16;
+    const urlX = videoRect.x + (videoRect.w - urlW) / 2;
+    const urlY = videoRect.y - videoRect.frameH / 2 - urlH / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    ctx.roundRect(urlX, urlY, urlW, urlH, 4);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('daddyrecorder.com', urlX + urlW / 2, urlY + urlH / 2);
+  }
+}
+
+function drawFrameBorderToCanvas(ctx, videoRect) {
+  if (!state.frameBorder) return;
+  if (state.backgroundType === 'hidden') return;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(videoRect.x, videoRect.y - videoRect.frameH, videoRect.w, videoRect.h + videoRect.frameH, 12);
+  ctx.stroke();
+}
+
+// Webcam composite into output canvas. Used at export time. Preview uses a
+// DOM overlay (positioned in output coords via updateCameraBubble).
+//
+// Bubble positioning is in OUTPUT space (the full canvas), NOT videoRect.
+// This lets the user park the bubble in the background padding around the
+// recorder content — Cursorful / Screen Studio behavior.
+function drawWebcamToCanvas(ctx, _videoRect, time) {
+  const s = state.cameraSettings;
+  if (!s || !s.enabled) return;
+  if (isCameraHiddenAt(time)) return;
+  const cam = elements.webcamPlayer;
+  if (!cam || !cam.videoWidth || !cam.videoHeight) return;
+
+  const out = outputDimensions();
+  // Bubble size scales with output width (was videoRect.w — now whole canvas).
+  const bubbleW = Math.round((s.sizePct / 100) * out.width);
+  const bubbleH = bubbleW;
+  const margin = Math.round(out.width * 0.02);
+  let x, y;
+  if (s.customX != null && s.customY != null) {
+    // customX/Y are normalized to the OUTPUT canvas (0..1). The bubble can
+    // sit anywhere in the exported frame, including the bg padding outside
+    // the recorder content.
+    x = s.customX * out.width;
+    y = s.customY * out.height;
+  } else {
+    x = margin;
+    y = margin;
+    const [vAnc, hAnc] = (s.anchor || 'bottom-right').split('-');
+    if (hAnc === 'center') x = (out.width - bubbleW) / 2;
+    else if (hAnc === 'right') x = out.width - bubbleW - margin;
+    if (vAnc === 'middle') y = (out.height - bubbleH) / 2;
+    else if (vAnc === 'bottom') y = out.height - bubbleH - margin;
+  }
+  // Clamp inside the OUTPUT canvas (not videoRect).
+  x = Math.max(0, Math.min(out.width - bubbleW, x));
+  y = Math.max(0, Math.min(out.height - bubbleH, y));
+
+  const radius = (getCornerRadiusPct(s) / 100) * bubbleW;
+  ctx.save();
+  ctx.globalAlpha = s.opacity ?? 1;
+  ctx.beginPath();
+  ctx.roundRect(x, y, bubbleW, bubbleH, radius);
+  ctx.clip();
+  // Cover-fit
+  const cw = cam.videoWidth, ch = cam.videoHeight;
+  const sc = Math.max(bubbleW / cw, bubbleH / ch);
+  const dw = cw * sc, dh = ch * sc;
+  const dx = x + (bubbleW - dw) / 2, dy = y + (bubbleH - dh) / 2;
+  if (s.mirror) {
+    ctx.translate(x + bubbleW, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(cam, x + bubbleW - dx - dw, dy, dw, dh);
+  } else {
+    ctx.drawImage(cam, dx, dy, dw, dh);
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.globalAlpha = (s.opacity ?? 1) * 0.7;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, bubbleW, bubbleH, radius);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Cache for the background image element. Reloaded when state.backgroundImage
+// changes; reused across rAF frames.
+const _bgImageCache = { url: null, img: null };
+function getBackgroundImage() {
+  if (state.backgroundType !== 'image') return null;
+  const url = state.backgroundImage;
+  if (_bgImageCache.url !== url) {
+    _bgImageCache.url = url;
+    _bgImageCache.img = new Image();
+    _bgImageCache.img.crossOrigin = 'anonymous';
+    _bgImageCache.img.src = url;
+  }
+  return _bgImageCache.img;
+}
+
+function renderFrame(ctx, time, opts = {}) {
+  const out = outputDimensions();
+  // Make sure the canvas backing buffer matches.
+  if (ctx.canvas.width !== out.width)  ctx.canvas.width = out.width;
+  if (ctx.canvas.height !== out.height) ctx.canvas.height = out.height;
+
+  const video = opts.video || elements.videoPlayer;
+  const sw = opts.sourceWidth ?? video?.videoWidth ?? 0;
+  const sh = opts.sourceHeight ?? video?.videoHeight ?? 0;
+
+  ctx.clearRect(0, 0, out.width, out.height);
+
+  // 1. Background
+  drawBackgroundToCanvas(ctx, out, getBackgroundImage());
+
+  if (!video || !sw || !sh) return;
+
+  // Output mode (the only mode now): camera × zoom → video region.
+  // Crop adjustment happens on the sidebar mini-preview, NOT on this canvas.
+  const videoRect = computeVideoRect(out);
+  drawFrameChromeToCanvas(ctx, videoRect, out);
+
+  const src = computeSourceRect(time, {
+    ...opts,
+    sourceWidth: sw,
+    sourceHeight: sh,
+  });
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(videoRect.x, videoRect.y, videoRect.w, videoRect.h, 12);
+  ctx.clip();
+
+  // Motion blur during zoom in/out ramp.
+  const z = getZoomAtTime(time);
+  const ramp = z ? computeZoomRamp(time, z) : 0;
+  const blurPx = zoomMotionBlurPx(ramp);
+  if (blurPx > 0.05) ctx.filter = `blur(${blurPx.toFixed(2)}px)`;
+
+  ctx.drawImage(video,
+    src.x, src.y, src.w, src.h,
+    videoRect.x, videoRect.y, videoRect.w, videoRect.h);
+  ctx.restore();
+
+  // 4. Webcam (canvas-side) — only at export. Preview uses DOM overlay.
+  if (opts.includeWebcam) drawWebcamToCanvas(ctx, videoRect, time);
+
+  // 5. Frame border on top
+  drawFrameBorderToCanvas(ctx, videoRect);
+}
+
+// =====================================================================
+// Preview render loop.
+// Drives state.smoothCursor (for zoom follow) and state.smoothCamera
+// (for eased crop transitions), then paints renderFrame() onto the
+// preview canvas. Runs continuously while the editor is open.
+// =====================================================================
+
+let renderLoopId = null;
+let lastRenderTs = 0;
+let _previewCtx = null;
+
+function startRenderLoop() {
+  if (renderLoopId) return;
+  _previewCtx = elements.previewCanvas?.getContext('2d');
+  if (!_previewCtx) return;
+
+  function tick(now) {
+    const time = elements.videoPlayer?.currentTime || 0;
+
+    let dt = lastRenderTs ? (now - lastRenderTs) / 1000 : 1 / 60;
+    if (dt > 0.1) dt = 0.1;  // cap on tab resume
+    lastRenderTs = now;
+
+    // Cursor follow smoothing
+    const cursorPos = getCursorAtTime(time);
+    state.cursorX = cursorPos.x;
+    state.cursorY = cursorPos.y;
+    const { smoothTime } = getZoomPreset();
+    state.smoothCursorX = smoothDamp(state.smoothCursorX, state.cursorX, state.smoothCursorVX, smoothTime, dt);
+    state.smoothCursorY = smoothDamp(state.smoothCursorY, state.cursorY, state.smoothCursorVY, smoothTime, dt);
+
+    // Camera easing comes from segment-level ramp (computeZoomRamp) inside
+    // getEffectiveCamera — no per-frame smoothDamp needed here.
+
+    // Main canvas ALWAYS renders the final cropped output. Crop adjustment
+    // happens in the sidebar mini-preview (see updateCropOverlay).
+    if (isCropEditingMode()) {
+      updateCropOverlay();
+      // Keep the sidebar mini-preview's currentTime synced with the main
+      // video so the user sees what they're cropping at the playhead moment.
+      const miniVideo = document.getElementById('cropMiniVideo');
+      if (miniVideo && elements.videoPlayer && Math.abs(miniVideo.currentTime - time) > 0.05) {
+        try { miniVideo.currentTime = time; } catch (_) {}
+      }
+    }
+    elements.previewFrame?.classList.toggle('zoom-active', !!getZoomAtTime(time));
+
+    renderFrame(_previewCtx, time, {
+      mode: 'output',
+      includeWebcam: false,  // DOM overlay handles preview webcam
+    });
+
+    renderLoopId = requestAnimationFrame(tick);
   }
 
-  // SMART ZOOM: Keep cursor centered in the viewport
-  //
-  // The approach:
-  // 1. Set transform-origin to top-left (0, 0)
-  // 2. Scale the video by S
-  // 3. Translate so the cursor position ends up at viewport center
-  //
-  // After scale(S) with origin at (0,0):
-  // - Video spans from (0,0) to (S*100%, S*100%)
-  // - Cursor at (cx, cy) moves to (cx*S*100%, cy*S*100%)
-  //
-  // To center cursor at (50%, 50%):
-  // translateX = 50% - cx*S*100% = (0.5 - cx*S) * 100%
-  // translateY = 50% - cy*S*100% = (0.5 - cy*S) * 100%
-  //
-  // Clamping to prevent showing outside video:
-  // - Left edge: translateX + 0 >= 0 is always true for our range
-  // - Right edge: translateX + S*100% >= 100% → translateX >= (1-S)*100%
-  // - So translateX must be >= (1-S)*100% and <= 0
+  lastRenderTs = 0;
+  renderLoopId = requestAnimationFrame(tick);
+}
 
-  let translateX = (0.5 - cursorX * scale) * 100;
-  let translateY = (0.5 - cursorY * scale) * 100;
+function stopRenderLoop() {
+  if (renderLoopId) {
+    cancelAnimationFrame(renderLoopId);
+    renderLoopId = null;
+  }
+}
 
-  // Clamp to keep video filling the viewport
-  const minTranslate = (1 - scale) * 100; // e.g., -50% for scale 1.5
-  const maxTranslate = 0;
-
-  translateX = Math.max(minTranslate, Math.min(maxTranslate, translateX));
-  translateY = Math.max(minTranslate, Math.min(maxTranslate, translateY));
-
-  // Apply transform: scale from top-left, then translate
-  elements.videoPlayer.style.transformOrigin = '0 0';
-  elements.videoPlayer.style.transform = `translate(${translateX.toFixed(2)}%, ${translateY.toFixed(2)}%) scale(${scale.toFixed(3)})`;
-
-  // Motion blur during the in/out ramp — vanishes at steady zoom.
-  const blurPx = zoomMotionBlurPx(ramp);
-  elements.videoPlayer.style.filter = blurPx > 0.05 ? `blur(${blurPx.toFixed(2)}px)` : '';
+// Reflect output settings (aspect / height) into UI dropdowns + canvas dims.
+// Called on init and whenever output changes.
+function reflectOutputUI() {
+  if (elements.outputAspectSelect) elements.outputAspectSelect.value = state.output.aspect;
+  if (elements.outputHeightSelect) elements.outputHeightSelect.value = String(state.output.height);
+  const out = outputDimensions();
+  if (elements.cropOutputReadout) {
+    elements.cropOutputReadout.textContent = `${out.width} × ${out.height}`;
+  }
+  // Drive the preview-wrapper aspect attribute so CSS sizes the wrapper.
+  if (elements.previewWrapper) elements.previewWrapper.setAttribute('data-aspect', state.output.aspect);
+  // Resize the canvas backing buffer.
+  if (elements.previewCanvas) {
+    elements.previewCanvas.width = out.width;
+    elements.previewCanvas.height = out.height;
+  }
 }
 
 // Get the clip at a specific video time
@@ -2695,82 +3754,32 @@ function handleClipBoundaries() {
 
 // Update preview
 function updatePreview() {
-  // Aspect ratio
-  elements.previewWrapper.setAttribute('data-aspect', state.aspectRatio);
+  // Output / aspect — drives canvas size and wrapper aspect.
+  reflectOutputUI();
 
-  // Reset background styles
-  elements.previewBackground.style.background = '';
-  elements.previewBackground.style.backgroundImage = '';
-  elements.previewBackground.style.backgroundSize = '';
-  elements.previewBackground.style.backgroundPosition = '';
-
-  // Background based on type
-  if (state.backgroundType === 'hidden') {
-    // No colored wrapper — the recorded surface sits on the editor's own
-    // page background. Matches what exports produce (transparent canvas).
+  // .preview-background is now mostly unused (background lives on the
+  // canvas) but we keep it transparent so legacy CSS doesn't shine through.
+  if (elements.previewBackground) {
     elements.previewBackground.style.background = 'transparent';
-    elements.previewWrapper.style.background = 'transparent';
-    elements.previewBackground.style.filter = 'none';
-    elements.previewBackground.style.transform = 'none';
-  } else if (state.backgroundType === 'image') {
-    elements.previewBackground.style.backgroundImage = `url('${state.backgroundImage}')`;
-    elements.previewBackground.style.backgroundSize = 'cover';
-    elements.previewBackground.style.backgroundPosition = 'center';
-    elements.previewWrapper.style.background = '';
-
-    // Apply blur for images
-    const blurValues = { none: '0px', light: '8px', moderate: '16px', heavy: '32px' };
-    const blur = blurValues[state.imageBlur];
-    elements.previewBackground.style.filter = blur === '0px' ? 'none' : `blur(${blur})`;
-    elements.previewBackground.style.transform = blur === '0px' ? 'none' : 'scale(1.1)';
-  } else if (state.backgroundType === 'gradient') {
-    elements.previewBackground.style.background = state.background;
-    elements.previewWrapper.style.background = '';
-    elements.previewBackground.style.filter = 'none';
-    elements.previewBackground.style.transform = 'none';
-  } else if (state.backgroundType === 'color') {
-    elements.previewBackground.style.background = state.background;
-    elements.previewWrapper.style.background = '';
+    elements.previewBackground.style.backgroundImage = '';
     elements.previewBackground.style.filter = 'none';
     elements.previewBackground.style.transform = 'none';
   }
 
-  // Crop - hide menu bar and/or dock
-  // macOS menu bar + tab bar is ~4.5% from top
-  // macOS dock is ~7% from bottom
-  const menuBarPercent = 4.5;
-  const dockPercent = 7;
-
-  const cropTop = state.hideMenuBar ? menuBarPercent : 0;
-  const cropBottom = state.hideDock ? dockPercent : 0;
-
-  if (cropTop > 0 || cropBottom > 0) {
-    // Use clipPath with rounded corners for clean look
-    elements.videoPlayer.style.clipPath = `inset(${cropTop}% 0 ${cropBottom}% 0 round 12px)`;
-  } else {
-    elements.videoPlayer.style.clipPath = 'none';
-  }
-
-  // Apply any active zoom effect (don't reset transform here, let applyZoomEffect handle it)
-  applyZoomEffect();
-
-  // Frame style
-  // Default: No custom frame, video shows its own browser chrome
-  // Minimal: Show custom DaddyRecorder frame
-  // Hidden: No frame at all
+  // Minimal frame DOM chrome — the canvas draws a minimal frame too in
+  // its own draw, but we keep this in DOM so the layout sizes correctly
+  // for non-canvas decorations (shadows, borders).
   if (state.frameStyle === 'minimal') {
-    elements.minimalFrame.classList.remove('hidden');
-    elements.videoPlayer.classList.add('has-frame');
+    elements.minimalFrame?.classList.remove('hidden');
   } else {
-    elements.minimalFrame.classList.add('hidden');
-    elements.videoPlayer.classList.remove('has-frame');
+    elements.minimalFrame?.classList.add('hidden');
   }
 
-  // Shadow & border
+  // Shadow & border classes — visual only, applied to the preview-frame box.
   elements.previewFrame.classList.toggle('has-shadow', state.frameShadow);
   elements.previewFrame.classList.toggle('has-border', state.frameBorder);
 
-  // Webcam bubble overlay tracks whatever the preview is doing.
+  // Webcam DOM overlay (preview side).
   updateCameraBubble();
 }
 
@@ -2779,138 +3788,57 @@ async function exportVideo() {
   elements.exportModal.classList.add('hidden');
   elements.loadingOverlay.classList.remove('hidden');
 
-  const resolution = elements.exportResolution.value;
   const quality = elements.exportQuality.value / 100;
   const format = elements.exportFormat.value;
+  // Output resolution is now driven by state.output (aspect + height) — the
+  // export modal's "resolution" dropdown is honored by overriding height.
+  const resMap = { '1080p': 1080, '720p': 720, '480p': 480 };
+  const overrideH = resMap[elements.exportResolution.value];
+  const savedHeight = state.output.height;
+  if (overrideH) state.output.height = overrideH;
 
-  // Get active clips (not deleted)
   const activeClips = state.clips.filter(c => !c.deleted);
-
   if (activeClips.length === 0) {
+    state.output.height = savedHeight;
     elements.loadingOverlay.classList.add('hidden');
     alert('No clips to export');
     return;
   }
 
   try {
-    // Get resolution dimensions
-    const resolutions = {
-      '1080p': { width: 1920, height: 1080 },
-      '720p': { width: 1280, height: 720 },
-      '480p': { width: 854, height: 480 }
-    };
-    const target = resolutions[resolution];
-
-    // Create offscreen video for reading frames
+    // Offscreen <video> drives source frames + audio. We don't disturb the
+    // editor's own videoPlayer (still bound to UI / current playback).
     const video = document.createElement('video');
     video.src = state.videoUrl;
     video.muted = true;
+    await new Promise(resolve => { video.onloadedmetadata = resolve; });
 
-    await new Promise(resolve => {
-      video.onloadedmetadata = resolve;
-    });
-
-    // Apply crop if enabled (matching preview values)
-    // macOS menu bar + tab bar ~4.5% from top, dock ~7% from bottom
-    const cropTop = state.hideMenuBar ? 0.045 : 0;
-    const cropBottom = state.hideDock ? 0.07 : 0;
-    const srcY = video.videoHeight * cropTop;
-    const srcHeight = video.videoHeight * (1 - cropTop - cropBottom);
-    const effectiveAspect = video.videoWidth / srcHeight;
-
-    // Hidden background implies a truly bare export — strip the browser
-    // frame header too so the file is just the video pixels.
-    const hiddenExport = state.backgroundType === 'hidden';
-    const frameHeight = (hiddenExport || state.frameStyle === 'hidden')
-      ? 0
-      : (state.frameStyle === 'minimal' ? 28 : 40);
-
-    // Canvas size + video placement depend on whether we're showing a
-    // background or cropping tight to the video.
-    let width, height, videoWidth, videoHeight, videoX, videoY;
-
-    if (state.backgroundType === 'hidden') {
-      // Tight crop: canvas = video region (+ frame header if present).
-      // No padding; videoX = 0, videoY = frameHeight.
-      if (effectiveAspect >= 1) {
-        videoWidth = Math.min(target.width, video.videoWidth);
-        videoHeight = videoWidth / effectiveAspect;
-      } else {
-        videoHeight = Math.min(target.height, srcHeight);
-        videoWidth = videoHeight * effectiveAspect;
-      }
-      // Round to even numbers — some encoders require it
-      videoWidth = Math.round(videoWidth / 2) * 2;
-      videoHeight = Math.round(videoHeight / 2) * 2;
-      width = videoWidth;
-      height = videoHeight + frameHeight;
-      videoX = 0;
-      videoY = frameHeight;
-    } else {
-      // Backgrounded export: pad around the video so the background shows.
-      width = target.width;
-      height = target.height;
-      const canvasAspect = width / height;
-      const padding = 60;
-
-      if (effectiveAspect > canvasAspect) {
-        videoWidth = width - padding * 2;
-        videoHeight = videoWidth / effectiveAspect;
-      } else {
-        videoHeight = height - padding * 2;
-        videoWidth = videoHeight * effectiveAspect;
-      }
-
-      videoX = (width - videoWidth) / 2;
-      videoY = (height - videoHeight) / 2;
-
-      if (frameHeight > 0) {
-        const totalHeight = videoHeight + frameHeight;
-        if (totalHeight > height - padding * 2) {
-          const scale = (height - padding * 2) / totalHeight;
-          videoHeight *= scale;
-          videoWidth *= scale;
-        }
-        videoX = (width - videoWidth) / 2;
-        videoY = (height - videoHeight - frameHeight) / 2 + frameHeight;
-      }
-    }
-
-    // Create canvas now that final dimensions are known
+    const out = outputDimensions();
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = out.width;
+    canvas.height = out.height;
     const ctx = canvas.getContext('2d');
 
-    // Set up MediaRecorder for canvas
+    // captureStream from canvas + carry source audio onto the same stream.
     const stream = canvas.captureStream(30);
-
-    // Carry the original recording's audio track(s) into the exported file so
-    // mic / system audio don't get lost. captureStream() on the <video> element
-    // shares its live media tracks with us.
     try {
       if (typeof video.captureStream === 'function') {
         const srcStream = video.captureStream();
         srcStream.getAudioTracks().forEach(t => stream.addTrack(t));
       }
     } catch (e) {
-      console.warn('[Editor] Could not attach source audio to export stream:', e);
+      console.warn('[Editor] Could not attach source audio to export:', e);
     }
 
     const mimeType = format === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')
       ? 'video/mp4'
       : 'video/webm;codecs=vp9,opus';
-
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: quality * 10000000
+      videoBitsPerSecond: quality * 10_000_000,
     });
-
     const chunks = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     const exportPromise = new Promise((resolve) => {
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mimeType });
@@ -2919,406 +3847,117 @@ async function exportVideo() {
         a.href = url;
         a.download = `daddyrecorder-export-${Date.now()}.${format}`;
         a.click();
-
         elements.loadingOverlay.classList.add('hidden');
         URL.revokeObjectURL(url);
         resolve();
       };
     });
 
-    // Calculate total edited duration for progress
     const totalEditedDuration = getEditedDuration();
     let processedDuration = 0;
 
-    // SmoothDamp cursor state for the export — mirrors the preview so
-    // the exported video's zoom follow motion matches what the user saw.
-    // Step size is 1/30s since the export loop runs at 30 fps.
-    const exportSmoothCursor = {
-      x: 0.5, y: 0.5,
-      vx: { v: 0 }, vy: { v: 0 },
-      initialized: false,
-    };
+    // Independent SmoothDamp cursor for the export — keeps follow motion
+    // identical to what the user saw in the preview, but isolated from the
+    // live preview's smoothing state (which keeps running in the background).
+    const expCur = { x: 0.5, y: 0.5, vx: { v: 0 }, vy: { v: 0 }, init: false };
 
-    // Helper to draw a frame with zoom effect
-    function drawFrame() {
-      // Clear canvas
-      ctx.clearRect(0, 0, width, height);
-
-      // Draw background
-      if (state.backgroundType === 'hidden') {
-        // Leave canvas transparent. webm output doesn't carry alpha, so
-        // the exported file will render as black around the video — that's
-        // the intended "no background" look.
-      } else if (state.backgroundType === 'color') {
-        ctx.fillStyle = state.background;
-        ctx.fillRect(0, 0, width, height);
-      } else if (state.backgroundType === 'gradient') {
-        // Parse gradient - try to extract colors
-        const gradient = ctx.createLinearGradient(0, 0, width, height);
-        // Default gradient if parsing fails
-        gradient.addColorStop(0, '#667eea');
-        gradient.addColorStop(1, '#764ba2');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
-      } else {
-        // Image background - fallback to gradient since we can't easily load images here
-        const gradient = ctx.createLinearGradient(0, 0, width, height);
-        gradient.addColorStop(0, '#667eea');
-        gradient.addColorStop(1, '#764ba2');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      // Draw shadow behind frame if enabled
-      // Frame shadow is drawn behind the video/frame box. Tight-crop ("hidden"
-      // background) leaves no room for a shadow and the dark fill behind the
-      // video would bleed into the edges, so skip it in that mode.
-      if (state.frameShadow && !hiddenExport) {
-        ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-        ctx.shadowBlur = 40;
-        ctx.shadowOffsetY = 15;
-        ctx.fillStyle = '#1a1a1d';
-
-        const frameY = videoY - frameHeight;
-        const radius = 12;
-
-        ctx.beginPath();
-        ctx.roundRect(videoX, frameY, videoWidth, videoHeight + frameHeight, radius);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      // Draw browser frame if not hidden
-      if (state.frameStyle !== 'hidden' && !hiddenExport) {
-        const frameY = videoY - frameHeight;
-        const radius = 12;
-
-        // Frame background (dark for minimal, light for default)
-        ctx.fillStyle = state.frameStyle === 'minimal' ? '#28282a' : '#f5f5f7';
-
-        ctx.beginPath();
-        ctx.roundRect(videoX, frameY, videoWidth, frameHeight, [radius, radius, 0, 0]);
-        ctx.fill();
-
-        // Traffic light dots
-        const dotY = frameY + frameHeight / 2;
-        const dotRadius = state.frameStyle === 'minimal' ? 4.5 : 6;
-        const dotSpacing = state.frameStyle === 'minimal' ? 16 : 20;
-        const dotStartX = videoX + 16;
-
-        ctx.fillStyle = '#ff5f57';
-        ctx.beginPath();
-        ctx.arc(dotStartX, dotY, dotRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#febc2e';
-        ctx.beginPath();
-        ctx.arc(dotStartX + dotSpacing, dotY, dotRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#28c840';
-        ctx.beginPath();
-        ctx.arc(dotStartX + dotSpacing * 2, dotY, dotRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // URL bar for minimal frame
-        if (state.frameStyle === 'minimal') {
-          const urlBarWidth = Math.min(180, videoWidth * 0.3);
-          const urlBarHeight = 16;
-          const urlBarX = videoX + (videoWidth - urlBarWidth) / 2;
-          const urlBarY = frameY + (frameHeight - urlBarHeight) / 2;
-
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-          ctx.beginPath();
-          ctx.roundRect(urlBarX, urlBarY, urlBarWidth, urlBarHeight, 4);
-          ctx.fill();
-
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-          ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('daddyrecorder.com', urlBarX + urlBarWidth / 2, urlBarY + urlBarHeight / 2);
-        }
-      }
-
-      // Calculate zoom parameters for current frame
-      const currentVideoTime = video.currentTime;
-      const activeZoom = getZoomAtTime(currentVideoTime);
-
-      let zoomScale = 1;
-      let zoomOriginX = 0.5;
-      let zoomOriginY = 0.5;
-      let zoomRamp = 0; // 0 = no zoom, 1 = fully zoomed
-
-      if (activeZoom) {
-        // Same fixed-time ramp as the preview — keeps export in sync.
-        const ramp = computeZoomRamp(currentVideoTime, activeZoom);
-        zoomRamp = ramp;
-        zoomScale = 1 + (activeZoom.depth - 1) * ramp;
-
-        if (activeZoom.position === 'fixed') {
-          zoomOriginX = activeZoom.fixedX;
-          zoomOriginY = activeZoom.fixedY;
-        } else {
-          // Follow mode: SmoothDamp with the same smoothTime as the
-          // preview so the exported motion matches what the user saw.
-          const target = getCursorAtTime(currentVideoTime);
+    function drawExportFrame() {
+      // Drive expCur via the same smoothDamp/smoothTime the preview uses.
+      const t = video.currentTime;
+      const z = getZoomAtTime(t);
+      let cursor = null;
+      if (z) {
+        if (z.position === 'follow') {
+          const target = getCursorAtTime(t);
           const { smoothTime } = getZoomPreset();
           const dt = 1 / 30;
-          if (exportSmoothCursor.initialized) {
-            exportSmoothCursor.x = smoothDamp(exportSmoothCursor.x, target.x, exportSmoothCursor.vx, smoothTime, dt);
-            exportSmoothCursor.y = smoothDamp(exportSmoothCursor.y, target.y, exportSmoothCursor.vy, smoothTime, dt);
+          if (expCur.init) {
+            expCur.x = smoothDamp(expCur.x, target.x, expCur.vx, smoothTime, dt);
+            expCur.y = smoothDamp(expCur.y, target.y, expCur.vy, smoothTime, dt);
           } else {
-            exportSmoothCursor.x = target.x;
-            exportSmoothCursor.y = target.y;
-            exportSmoothCursor.vx.v = 0;
-            exportSmoothCursor.vy.v = 0;
-            exportSmoothCursor.initialized = true;
+            expCur.x = target.x; expCur.y = target.y;
+            expCur.vx.v = 0; expCur.vy.v = 0; expCur.init = true;
           }
-          zoomOriginX = exportSmoothCursor.x;
-          zoomOriginY = exportSmoothCursor.y;
+          cursor = { x: expCur.x, y: expCur.y };
         }
       } else {
-        // Reset smoothing between zoom segments so a new zoom starts
-        // from the cursor's actual position, not the leftover smoothed
-        // value from the previous segment.
-        exportSmoothCursor.initialized = false;
+        expCur.init = false;
       }
 
-      // Draw video frame with crop, zoom, and rounded corners
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(videoX, videoY, videoWidth, videoHeight, 12);
-      ctx.clip();
-
-      // Motion blur during the zoom in/out ramps (matches preview).
-      const exportBlurPx = zoomMotionBlurPx(zoomRamp);
-      if (exportBlurPx > 0.05) {
-        ctx.filter = `blur(${exportBlurPx.toFixed(2)}px)`;
-      }
-
-      if (zoomScale !== 1) {
-        // Apply zoom: calculate zoomed source rectangle
-        const zoomedSrcWidth = video.videoWidth / zoomScale;
-        const zoomedSrcHeight = srcHeight / zoomScale;
-
-        // Center the cursor in the visible area (cursor always at center of zoom)
-        // Calculate offset to center the cursor position
-        let offsetX = zoomOriginX * video.videoWidth - zoomedSrcWidth / 2;
-        let offsetY = zoomOriginY * srcHeight - zoomedSrcHeight / 2;
-
-        // Clamp to video bounds so we don't show outside the video
-        const maxOffsetX = video.videoWidth - zoomedSrcWidth;
-        const maxOffsetY = srcHeight - zoomedSrcHeight;
-        offsetX = Math.max(0, Math.min(maxOffsetX, offsetX));
-        offsetY = Math.max(0, Math.min(maxOffsetY, offsetY));
-
-        ctx.drawImage(
-          video,
-          offsetX, srcY + offsetY, zoomedSrcWidth, zoomedSrcHeight,  // Source: zoomed area
-          videoX, videoY, videoWidth, videoHeight // Destination
-        );
-      } else {
-        // No zoom, draw normally
-        ctx.drawImage(
-          video,
-          0, srcY, video.videoWidth, srcHeight,  // Source: cropped area
-          videoX, videoY, videoWidth, videoHeight // Destination
-        );
-      }
-      ctx.restore();
-
-      // Webcam bubble overlay — drawn AFTER the video so it sits on top,
-      // but BEFORE the border so the bubble doesn't clip the corner stroke.
-      drawWebcamBubble(videoX, videoY, videoWidth, videoHeight);
-
-      // Draw border if enabled (but not in tight-crop mode — border would
-      // hug the canvas edges and get clipped).
-      if (state.frameBorder && !hiddenExport) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 2;
-        const frameY = videoY - frameHeight;
-        ctx.beginPath();
-        ctx.roundRect(videoX, frameY, videoWidth, videoHeight + frameHeight, 12);
-        ctx.stroke();
-      }
+      renderFrame(ctx, t, {
+        video,
+        sourceWidth: video.videoWidth,
+        sourceHeight: video.videoHeight,
+        mode: 'output',
+        includeWebcam: true,
+        useSmoothCamera: false,  // export uses raw camera (no easing)
+        cursor,
+      });
     }
 
-    // Composite the webcam bubble into the export canvas.
-    function drawWebcamBubble(vx, vy, vw, vh) {
-      const s = state.cameraSettings;
-      if (!s || !s.enabled) return;
-      if (isCameraHiddenAt(video.currentTime || 0)) return;
-      const cam = elements.webcamPlayer;
-      // HAVE_METADATA (1) + video w/h tells us a frame is paintable. Without
-      // this softer check, any mid-seek dip of readyState caused the bubble
-      // to blink out for a frame.
-      if (!cam || !cam.videoWidth || !cam.videoHeight) return;
-
-      // Bubble is a square whose visual shape is driven by corner radius.
-      const bubbleW = Math.round((s.sizePct / 100) * vw);
-      const bubbleH = bubbleW;
-      const margin = Math.round(vw * 0.02); // 2% inset
-
-      let x, y;
-      if (s.customX != null && s.customY != null) {
-        // Custom drag position — normalized to the preview container in the
-        // editor, applied 1:1 to the video region at export time.
-        x = vx + s.customX * vw;
-        y = vy + s.customY * vh;
-      } else {
-        // 9-point anchor
-        x = vx + margin;
-        y = vy + margin;
-        const [vAnc, hAnc] = (s.anchor || 'bottom-right').split('-');
-        if (hAnc === 'center') x = vx + (vw - bubbleW) / 2;
-        else if (hAnc === 'right') x = vx + vw - bubbleW - margin;
-        if (vAnc === 'middle') y = vy + (vh - bubbleH) / 2;
-        else if (vAnc === 'bottom') y = vy + vh - bubbleH - margin;
-      }
-      // Clamp so the bubble stays inside the video region in export too
-      x = Math.max(vx, Math.min(vx + vw - bubbleW, x));
-      y = Math.max(vy, Math.min(vy + vh - bubbleH, y));
-      // Alias for the rest of the function — mask + draw below use a
-      // single "size" when the shape is square-ish (circle/rounded/square)
-      // but need separate w/h for portrait/landscape.
-      const size = bubbleW; // legacy reference for circle path math
-
-      // Mask / stroke path derived from corner-radius %. A radius of 50
-      // equals half the bubble width, i.e. a full circle.
-      const radius = (getCornerRadiusPct(s) / 100) * bubbleW;
-      const tracePath = () => {
-        ctx.beginPath();
-        ctx.roundRect(x, y, bubbleW, bubbleH, radius);
-      };
-
-      ctx.save();
-      ctx.globalAlpha = s.opacity ?? 1;
-      tracePath();
-      ctx.clip();
-
-      // Cover-fit the webcam video frame into the bubble rectangle.
-      const cw = cam.videoWidth || 640;
-      const ch = cam.videoHeight || 480;
-      const scale = Math.max(bubbleW / cw, bubbleH / ch);
-      const dw = cw * scale;
-      const dh = ch * scale;
-      const dx = x + (bubbleW - dw) / 2;
-      const dy = y + (bubbleH - dh) / 2;
-
-      if (s.mirror) {
-        ctx.translate(x + bubbleW, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(cam, x + bubbleW - dx - dw, dy, dw, dh);
-      } else {
-        ctx.drawImage(cam, dx, dy, dw, dh);
-      }
-
-      ctx.restore();
-
-      // Subtle ring around the bubble, matching the preview shadow.
-      ctx.save();
-      ctx.globalAlpha = (s.opacity ?? 1) * 0.7;
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-      tracePath();
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Process each clip sequentially
     recorder.start();
 
-    // Webcam player — the editor's preview element. During export we drive
-    // it alongside the screen video so the bubble isn't stuck on a frozen
-    // frame in the output.
     const webcam = elements.webcamPlayer;
     const hasWebcam = !!(webcam && webcam.src && state.cameraSettings?.enabled);
-    if (hasWebcam) {
-      webcam.muted = true;
-      webcam.pause();
-    }
+    if (hasWebcam) { webcam.muted = true; webcam.pause(); }
 
-    for (let clipIndex = 0; clipIndex < activeClips.length; clipIndex++) {
-      const clip = activeClips[clipIndex];
-      const clipDuration = (clip.end - clip.start) / clip.speed;
+    for (let i = 0; i < activeClips.length; i++) {
+      const clip = activeClips[i];
+      const clipDur = (clip.end - clip.start) / clip.speed;
 
-      // Seek to clip start
       video.currentTime = clip.start;
-      await new Promise(resolve => {
-        video.onseeked = resolve;
-      });
-
-      // Play this clip at its speed
+      await new Promise(r => { video.onseeked = r; });
       video.playbackRate = clip.speed;
 
-      // Seek webcam to the same position + play at the same speed
       if (hasWebcam) {
         webcam.playbackRate = clip.speed;
         try {
-          webcam.currentTime = Math.min(clip.start, (webcam.duration || clip.start));
-          await new Promise((resolve) => {
-            const done = () => { webcam.onseeked = null; resolve(); };
+          webcam.currentTime = Math.min(clip.start, webcam.duration || clip.start);
+          await new Promise(r => {
+            const done = () => { webcam.onseeked = null; r(); };
             webcam.onseeked = done;
-            setTimeout(done, 500); // safety: don't block if seeked never fires
+            setTimeout(done, 500);
           });
         } catch (_) {}
         webcam.play().catch(() => {});
       }
 
-      // Process this clip's frames
       await new Promise((resolveClip) => {
         let lastFrameTime = performance.now();
-        const targetFrameInterval = 1000 / 30; // 30fps
+        const interval = 1000 / 30;
 
-        const processClipFrames = () => {
-          // Check if we've reached the end of this clip
+        const tick = () => {
           if (video.currentTime >= clip.end || video.ended) {
             video.pause();
             if (hasWebcam) webcam.pause();
-            processedDuration += clipDuration;
+            processedDuration += clipDur;
             resolveClip();
             return;
           }
-
           const now = performance.now();
-          const elapsed = now - lastFrameTime;
+          if (now - lastFrameTime >= interval) {
+            lastFrameTime = now - ((now - lastFrameTime) % interval);
+            drawExportFrame();
 
-          if (elapsed >= targetFrameInterval) {
-            lastFrameTime = now - (elapsed % targetFrameInterval);
-
-            // No mid-clip drift correction — each currentTime= assignment
-            // triggers a seek, which briefly drops readyState and made the
-            // bubble blink. Webcam + screen both run at clip.speed, so
-            // they stay aligned for the life of the clip. We re-sync
-            // between clips at each clip's start seek below.
-
-            drawFrame();
-
-            // Update progress
-            const clipProgress = (video.currentTime - clip.start) / (clip.end - clip.start);
-            const overallProgress = (processedDuration + clipProgress * clipDuration) / totalEditedDuration;
-            elements.loadingProgressBar.style.width = `${Math.min(100, overallProgress * 100)}%`;
+            const cp = (video.currentTime - clip.start) / (clip.end - clip.start);
+            const overall = (processedDuration + cp * clipDur) / totalEditedDuration;
+            elements.loadingProgressBar.style.width = `${Math.min(100, overall * 100)}%`;
           }
-
-          requestAnimationFrame(processClipFrames);
+          requestAnimationFrame(tick);
         };
 
-        video.play().then(() => {
-          processClipFrames();
-        });
+        video.play().then(tick);
       });
     }
 
-    // All clips processed, stop recording
     recorder.stop();
     await exportPromise;
-
   } catch (error) {
     console.error('Export error:', error);
     elements.loadingOverlay.classList.add('hidden');
     alert('Export failed: ' + error.message);
+  } finally {
+    state.output.height = savedHeight;
   }
 }
 

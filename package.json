@@ -7,7 +7,10 @@
   "private": true,
   "scripts": {
     "icons": "node scripts/create-png-icons.js",
-    "build": "npm run icons"
+    "build": "npm run icons",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui"
   },
   "keywords": [
     "chrome-extension",
@@ -21,6 +24,8 @@
     "url": "https://github.com/muhammedanaskhan/demozar"
   },
   "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "http-server": "^14.1.1",
     "sharp": "^0.34.5"
   }
 }
