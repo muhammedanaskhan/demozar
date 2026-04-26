@@ -1008,37 +1008,17 @@ body {
   width: 2px;
   background: #22c55e;
   z-index: 10;
-  pointer-events: auto;
-  cursor: grab;
+  /* Pass clicks through to segments under the playhead — the timeline
+     wrapper itself handles seek-from-click and drag-to-scrub. Direct
+     grabbing of the 2px line was always finicky anyway. */
+  pointer-events: none;
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.2);
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-/* Wide invisible hit area for easier grabbing */
-.timeline-playhead::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 20px; /* 20px wide hit area */
-  cursor: grab;
-}
-
-/* Hover glow effect - subtle */
-.timeline-playhead:hover {
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.25);
-}
-
-.timeline-playhead:hover::before {
-  filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.3));
-}
-
-/* Grabbing state - slightly more visible */
-.timeline-playhead:active,
+/* Dragging state — the timeline wrapper drives the drag now (see
+   startTimelineDrag), but we still toggle this class for visual feedback. */
 .timeline-playhead.dragging {
-  cursor: grabbing;
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
 }
 

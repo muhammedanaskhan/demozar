@@ -686,14 +686,6 @@ function getActiveCropAt(time) {
     .sort((a, b) => a.start - b.start)[0] || null;
 }
 
-// The most recent crop segment ending at or before `time`. Used to derive
-// the "previous" camera when easing into the start of a new segment.
-function getCropBefore(time) {
-  return state.cropSegments
-    .filter(s => s.end <= time)
-    .sort((a, b) => b.end - a.end)[0] || null;
-}
-
 function lerpCamera(a, b, t) {
   // Linear interp preserves aspect lock when both endpoints share the
   // same locked ratio (proven in the design notes).
@@ -705,18 +697,34 @@ function lerpCamera(a, b, t) {
   };
 }
 
-// The camera to render at `time`. Composes default + active segment + ease.
-//   - No active segment at this time: default camera (full-screen max-fit
-//     aspect-locked).
-//   - Active segment is the SELECTED one: WYSIWYG — return segment.camera
-//     directly, no ramp. Lets the user see their handle drags reflected in
-//     the main preview without the in/out ramp eating the change.
-//   - Active segment but NOT selected: lerp previous camera → segment.camera
-//     using computeZoomRamp (same easing zoom segments use).
+// What camera was active at the instant just BEFORE `time`? If a previous
+// segment ends exactly at this time (back-to-back) it'll be active at
+// time-eps. If there's a gap (or nothing precedes), default camera applies.
+function cameraNeighborBefore(time, sw, sh) {
+  const seg = getActiveCropAt(time - 1e-4);
+  if (seg) return seg.camera;
+  return defaultCamera(sw, sh, aspectValue(state.output.aspect));
+}
+
+// Same idea for the instant just AFTER `time`. Used at the END of a segment
+// to ease toward whatever comes next (gap or adjacent segment).
+function cameraNeighborAfter(time, sw, sh) {
+  const seg = getActiveCropAt(time + 1e-4);
+  if (seg) return seg.camera;
+  return defaultCamera(sw, sh, aspectValue(state.output.aspect));
+}
+
+// The camera to render at `time`. Inside a crop segment's ramp window we
+// ease between `seg.camera` and the camera that's active immediately on
+// the OTHER side of the boundary — so a segment with a gap before it eases
+// from the default (not from a different segment ending earlier), and a
+// segment ramping out eases toward what's next (default if gap, next
+// segment's camera if back-to-back).
 //
-// Critical invariant: when the playhead is OUTSIDE every crop segment, the
-// effective camera is always the default — even if a segment is selected
-// for editing in the sidebar. Selection != "always apply this camera".
+// Selection state does NOT change rendering — easing applies whether the
+// segment is selected or not. WYSIWYG for handle drags is preserved by
+// createCropSegment seeking the playhead to the segment's midpoint (where
+// the ramp is at 1.0), so dragged camera changes show in the main preview.
 function getEffectiveCamera(time, sw, sh) {
   const ar = aspectValue(state.output.aspect);
   const baseCam = defaultCamera(sw, sh, ar);
@@ -724,15 +732,33 @@ function getEffectiveCamera(time, sw, sh) {
   const seg = getActiveCropAt(time);
   if (!seg) return baseCam;
 
-  // The active-at-time segment IS the one being edited → render its camera
-  // directly. WYSIWYG only applies when the playhead is inside the selection.
-  if (seg.id === state.selectedCropId) return seg.camera;
+  // Replicate computeZoomRamp's elapsed/remaining math here so we can pick
+  // the correct neighbor (before vs after) based on which edge we're near.
+  const { rampSec, curve } = getZoomPreset();
+  const segLen = seg.end - seg.start;
+  const rampDur = Math.min(rampSec, segLen / 3);
+  const elapsed = time - seg.start;
+  const remaining = seg.end - time;
 
-  // Active but not selected: eased blend.
-  const ramp = computeZoomRamp(time, seg);
-  const prevSeg = getCropBefore(seg.start);
-  const prevCam = prevSeg ? prevSeg.camera : baseCam;
-  return lerpCamera(prevCam, seg.camera, ramp);
+  if (elapsed >= rampDur && remaining >= rampDur) {
+    return seg.camera;  // steady state — far from both edges
+  }
+
+  let t, neighborCam, isRampingOut = false;
+  if (elapsed < rampDur && (remaining >= rampDur || elapsed <= remaining)) {
+    // Ramp-in side (or the in-half of a sub-ramp-duration segment)
+    t = elapsed / rampDur;
+    neighborCam = cameraNeighborBefore(seg.start, sw, sh);
+  } else {
+    // Ramp-out side
+    t = remaining / rampDur;
+    isRampingOut = true;
+    neighborCam = cameraNeighborAfter(seg.end, sw, sh);
+  }
+
+  t = Math.max(0, Math.min(1, t));
+  const eased = applyEase(t, isRampingOut ? 'easeInOutCubic' : curve);
+  return lerpCamera(neighborCam, seg.camera, eased);
 }
 
 // Create a crop segment at the playhead, default 2s, default camera =
@@ -755,6 +781,11 @@ function createCropSegment() {
   state.selectedCropId = seg.id;
   state.selectedZoomId = null;
   state.selectedClipId = null;
+  // Seek to mid-segment so the in/out ramp is at 1.0 — handle drags
+  // immediately show in the main preview without waiting for ramp-in.
+  // Outside the segment time range, ease-in/out applies on playback.
+  const mid = (seg.start + seg.end) / 2;
+  try { elements.videoPlayer.currentTime = mid; } catch (_) {}
   renderCropSegments();
   updateCropOverlay();
   updateCropPanel();
@@ -981,6 +1012,36 @@ function syncMiniPreview() {
 // the case when the user is actively editing a crop segment.
 function isCropEditingMode() {
   return !!state.selectedCropId;
+}
+
+// Test hook: lets Playwright introspect the camera resolver and inject
+// segments without going through the UI race conditions. Purely additive.
+if (typeof window !== 'undefined') {
+  window.__editorTestProbe = {
+    getEffectiveCamera: (time) => {
+      const v = elements.videoPlayer;
+      const sw = v?.videoWidth || 0;
+      const sh = v?.videoHeight || 0;
+      return getEffectiveCamera(time, sw, sh);
+    },
+    getCropSegments: () => state.cropSegments.map(s => ({
+      id: s.id, start: s.start, end: s.end, camera: { ...s.camera },
+    })),
+    getOutput: () => ({ ...state.output }),
+    // Replace the segment list outright — bypasses createCropSegment's seek
+    // and event wiring so tests can construct deterministic timelines.
+    setCropSegments: (list) => {
+      state.cropSegments = list.map(s => ({
+        id: s.id || ('crop_test_' + Math.random().toString(36).slice(2, 9)),
+        start: s.start,
+        end: s.end,
+        camera: { ...s.camera },
+      }));
+      state.cropSegments.sort((a, b) => a.start - b.start);
+      state.selectedCropId = null;
+      renderCropSegments();
+    },
+  };
 }
 
 // Toggle empty-state vs selected-segment editor inside the Crop panel.

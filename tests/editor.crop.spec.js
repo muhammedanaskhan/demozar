@@ -290,6 +290,72 @@ test.describe('Crop — segment-based virtual camera', () => {
     expect(same).toBe(false);
   });
 
+  test('Two segments with a gap: ramp neighbor at seg2 boundaries is the default, not seg1', async ({ page }) => {
+    // 6s fixture so default 2s segments at t=0 and t=4 leave a gap [2, 4].
+    await page.goto('/editor/editor.html');
+    await page.waitForFunction(() => !!window.__editorFixtures);
+    await page.evaluate(async () => {
+      const blob = await window.__editorFixtures.makeFixtureBlob({
+        width: 1280, height: 720, durationMs: 6000, fps: 30,
+      });
+      await window.__editorFixtures.seedRecording(blob);
+    });
+    await page.reload();
+    await page.waitForFunction(() => {
+      const v = document.getElementById('videoPlayer');
+      return v && v.videoWidth > 0 && v.duration > 5;
+    }, { timeout: 10_000 });
+    await page.waitForTimeout(200);
+
+    // Inject two segments directly — bypasses the UI race conditions of
+    // Add-Crop's internal seek-to-mid + camera-input change handlers.
+    const result = await page.evaluate(async () => {
+      const probe = window.__editorTestProbe;
+      // Segment 1: [0, 2], camera = top-right 50%×50% (in source-norm).
+      // Segment 2: [4, 6], camera = center 50%×50%.
+      // Gap [2, 4] has no segment, so default camera applies there.
+      probe.setCropSegments([
+        { start: 0, end: 2, camera: { x: 0.5, y: 0.0, w: 0.5, h: 0.5 } },
+        { start: 4, end: 6, camera: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 } },
+      ]);
+      const segs = probe.getCropSegments();
+      const seg1 = segs[0], seg2 = segs[1];
+      const gapCam      = probe.getEffectiveCamera(3.0);
+      const atSeg2Start = probe.getEffectiveCamera(seg2.start + 0.01);
+      const atSeg2End   = probe.getEffectiveCamera(seg2.end - 0.01);
+      const atSeg2Mid   = probe.getEffectiveCamera((seg2.start + seg2.end) / 2);
+      return { seg1, seg2, gapCam, atSeg2Start, atSeg2End, atSeg2Mid };
+    });
+
+    // Distance helper between two cameras (sum of abs differences).
+    const camDist = (a, b) =>
+      Math.abs(a.x - b.x) + Math.abs(a.y - b.y) +
+      Math.abs(a.w - b.w) + Math.abs(a.h - b.h);
+
+    // Sanity: seg1 and seg2 cameras really do differ.
+    expect(camDist(result.seg1.camera, result.seg2.camera)).toBeGreaterThan(0.1);
+
+    // Core fix: at the very start of seg2, the resolved camera is closer to
+    // the GAP camera (default) than to seg1's camera. Before the fix it
+    // would have been ≈ seg1.camera at ramp=0.
+    {
+      const dToGap = camDist(result.atSeg2Start, result.gapCam);
+      const dToSeg1 = camDist(result.atSeg2Start, result.seg1.camera);
+      expect(dToGap).toBeLessThan(dToSeg1);
+    }
+
+    // Same on ramp-OUT: at the very END of seg2, also closer to gap (next
+    // is default) than to seg1.
+    {
+      const dToGap = camDist(result.atSeg2End, result.gapCam);
+      const dToSeg1 = camDist(result.atSeg2End, result.seg1.camera);
+      expect(dToGap).toBeLessThan(dToSeg1);
+    }
+
+    // Mid-seg2 should be fully seg2.camera (ramp = 1.0).
+    expect(camDist(result.atSeg2Mid, result.seg2.camera)).toBeLessThan(0.001);
+  });
+
   test('Delete Crop Segment removes it from the timeline', async ({ page }) => {
     await bootEditor(page);
     await page.locator('#addCropBtn').click();
